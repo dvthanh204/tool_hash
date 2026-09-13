@@ -85,13 +85,15 @@ class AuthorApp(ctk.CTk):
         self.txt_key.pack(pady=5)
 
     def gk(self):
-        import hmac, hashlib
+        import hmac, hashlib, base64
         u = self.eu.get().strip()
         if u:
-            # Tạo chữ ký HMAC bằng mật khẩu bí mật (đồng bộ với Mac App)
+            db = self.get_db()
+            v = db.get(u, 0) + 1
             secret = b"12345678901234567890123456789012"
-            sig = hmac.new(secret, u.encode('utf-8'), hashlib.sha256).digest()
-            k = base64.b64encode(sig).decode('utf-8')
+            raw = f"{u}_{v}".encode('utf-8')
+            sig = hmac.new(secret, raw, hashlib.sha256).digest()
+            k = f"V{v}-" + base64.b64encode(sig).decode('utf-8')
             
             self.txt_key.delete("0.0", "end")
             self.txt_key.insert("0.0", k)
@@ -112,18 +114,22 @@ class AuthorApp(ctk.CTk):
     def init_t4(self):
         self.eau = ctk.CTkEntry(self.tab4, width=350, placeholder_text="UUID ân xá")
         self.eau.pack(pady=5)
-        self.eae = ctk.CTkEntry(self.tab4, width=200, placeholder_text="YYYY-MM-DD")
-        self.eae.pack(pady=5)
-        ctk.CTkButton(self.tab4, text="Tạo Key Ân Xá", fg_color="orange", command=self.pa).pack()
+        # Bỏ nhập ngày tháng
+        ctk.CTkButton(self.tab4, text="Tạo Key Ân Xá", fg_color="orange", command=self.pa).pack(pady=5)
         self.tak = ctk.CTkTextbox(self.tab4, height=120, width=450)
         self.tak.pack(pady=5)
 
     def pa(self):
-        u, e = self.eau.get().strip(), self.eae.get().strip()
-        if u and e:
-            nv = self.get_db().get(u, 0) + 1
-            k = Fernet(FERNET_KEY).encrypt(json.dumps({"u":u, "e":e, "v":nv}).encode()).decode()
-            self.tak.delete("0.0", "end"); self.tak.insert("0.0", k)
+        import hmac, hashlib, base64
+        u = self.eau.get().strip()
+        if u:
+            v = self.get_db().get(u, 0) + 1
+            secret = b"12345678901234567890123456789012"
+            raw = f"{u}_{v}".encode('utf-8')
+            sig = hmac.new(secret, raw, hashlib.sha256).digest()
+            k = f"V{v}-" + base64.b64encode(sig).decode('utf-8')
+            self.tak.delete("0.0", "end")
+            self.tak.insert("0.0", k)
 
 if __name__ == "__main__":
     AuthorApp().mainloop()
