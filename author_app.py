@@ -46,8 +46,13 @@ class AuthorApp(ctk.CTk):
                 for p_pth in self.p_pths:
                     zf.write(p_pth, os.path.basename(p_pth))
                 zf.write("revocations.json", "revocations.json") if os.path.exists("revocations.json") else zf.writestr("revocations.json", "{}")
-            enc = Fernet(FERNET_KEY).encrypt(mz.getvalue())
-            with open("baigiang.khoa", "wb") as f: f.write(enc)
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            secret = b"12345678901234567890123456789012"
+            aesgcm = AESGCM(secret)
+            nonce = os.urandom(12)
+            zip_bytes = mz.getvalue()
+            ct = aesgcm.encrypt(nonce, zip_bytes, None)
+            with open("baigiang.khoa", "wb") as f: f.write(nonce + ct)
             
             if os.path.exists("SlideLock.app"):
                 with zipfile.ZipFile("KhoaHoc_Mac.zip", 'w', zipfile.ZIP_DEFLATED) as zf:
