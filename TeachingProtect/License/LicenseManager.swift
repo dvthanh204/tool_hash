@@ -39,22 +39,10 @@ public class LicenseManager {
     
     private func validate(keyBase64: String) -> Bool {
         let input = keyBase64.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = input.components(separatedBy: "-")
-        guard parts.count == 2, parts[0].hasPrefix("V") else {
-            return false // Lỗi định dạng!
-        }
-        
-        let versionStr = String(parts[0].dropFirst())
-        guard let version = Int(versionStr) else {
-            return false
-        }
-        
-        let providedHmac = parts[1]
-        
-        // Hmac verification against machine Id & version
         let currentMachine = MachineID.current
+        
         guard let secretData = "12345678901234567890123456789012".data(using: .utf8),
-              let messageData = "\(currentMachine)_\(version)".data(using: .utf8) else {
+              let messageData = currentMachine.data(using: .utf8) else {
             return false
         }
         
@@ -62,14 +50,13 @@ public class LicenseManager {
         let hmac = HMAC<SHA256>.authenticationCode(for: messageData, using: symmetricKey)
         let expectedSignature = Data(hmac).base64EncodedString()
         
-        if providedHmac != expectedSignature {
+        if input != expectedSignature {
             return false
         }
         
         // --- KIỂM TRA REVOCATIONS TỪ GÓI BAIGIANG LÕI ---
         let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
         if !FileManager.default.fileExists(atPath: tempZipURL.path) {
-            // Decrypt it just for validation if not exist
             if let bundleUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa"),
                let data = try? Data(contentsOf: bundleUrl), data.count > 12 {
                 if let sealedBox = try? AES.GCM.SealedBox(combined: data),
@@ -90,8 +77,8 @@ public class LicenseManager {
             task.waitUntilExit()
             
             if let json = try? JSONSerialization.jsonObject(with: revData) as? [String: Int] {
-                if let bannedVersion = json[currentMachine], version <= bannedVersion {
-                    return false // Kẻ gian đang dùng key cũ đã bị cấm túc!
+                if json[currentMachine] != nil {
+                    return false // Có mặt trong sổ đen là phế khóa
                 }
             }
         }

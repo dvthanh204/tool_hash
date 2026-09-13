@@ -68,7 +68,7 @@ struct ActivationView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.secondary)
                         
-                    TextField("VD: V1-O2X0...", text: $licenseKey)
+                    TextField("VD: L3X2...", text: $licenseKey)
                         .textFieldStyle(.plain)
                         .font(.system(size: 16, weight: .medium, design: .monospaced))
                         .padding(16)

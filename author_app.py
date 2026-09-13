@@ -128,21 +128,20 @@ class AuthorApp(ctk.CTk):
         except Exception as e: messagebox.showerror("Lỗi", str(e))
 
     def _generate_hmac_key(self, u):
-        v = self.get_db().get(u, 0) + 1
-        raw = f"{u}_{v}".encode('utf-8')
+        raw = f"{u}".encode('utf-8')
         sig = hmac.new(b"12345678901234567890123456789012", raw, hashlib.sha256).digest()
-        return f"V{v}-" + base64.b64encode(sig).decode('utf-8')
+        return base64.b64encode(sig).decode('utf-8')
 
     def init_t2(self):
-        card = self.build_card(self.frames["tab2"], "Cấp Quyền Truy Cập", "Sinh khóa kích hoạt mã hóa đa tầng cho học viên.")
+        card = self.build_card(self.frames["tab2"], "Cấp Quyền Truy Cập", "Sinh khóa duy nhất cho 1 máy tính đích.")
         self.eu = ctk.CTkEntry(card, height=55, placeholder_text="Nhập Machine ID của máy Apple...", font=ctk.CTkFont(family="Inter", size=15), fg_color="#09090B", border_color="#27272A", border_width=2, corner_radius=12, justify="center")
         self.eu.pack(pady=10, padx=60, fill="x")
-        ctk.CTkButton(card, text="TẠO CHÌA KHÓA", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#4F46E5", hover_color="#4338CA", command=lambda: self.txt_key.set(self._generate_hmac_key(self.eu.get().strip())), height=55, corner_radius=14).pack(pady=20, padx=60, fill="x")
+        ctk.CTkButton(card, text="TẠO CHÌA KHÓA DUY NHẤT", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#4F46E5", hover_color="#4338CA", command=lambda: self.txt_key.set(self._generate_hmac_key(self.eu.get().strip())), height=55, corner_radius=14).pack(pady=20, padx=60, fill="x")
         self.txt_key = ctk.StringVar()
         ctk.CTkEntry(card, textvariable=self.txt_key, height=65, font=ctk.CTkFont(family="Consolas", size=19, weight="bold"), justify='center', state='readonly', fg_color="#09090B", text_color="#10B981", border_color="#10B981", border_width=2, corner_radius=12).pack(pady=10, padx=60, fill="x")
 
     def init_t3(self):
-        card = self.build_card(self.frames["tab3"], "Ngăn Chặn Cố Ý", "Tước khóa của những thiết bị có dấu hiệu vi phạm.")
+        card = self.build_card(self.frames["tab3"], "Ngăn Chặn Cố Ý", "Tước quyền sử dụng của những máy tính vi phạm.")
         self.eb = ctk.CTkEntry(card, height=55, placeholder_text="Paste Machine ID vi phạm vào đây...", font=ctk.CTkFont(family="Inter", size=15), fg_color="#09090B", text_color="#F87171", border_color="#27272A", border_width=2, corner_radius=12, justify="center")
         self.eb.pack(pady=10, padx=60, fill="x")
         
@@ -150,17 +149,28 @@ class AuthorApp(ctk.CTk):
             u = self.eb.get().strip()
             if u:
                 db = self.get_db()
-                db[u] = db.get(u, 0) + 1
+                db[u] = 1 # Marking as banned
                 self.save_db(db)
-                messagebox.showinfo("Thành Công", f"Đã cấm vĩnh viễn thiết bị '{u}' (Lệnh: v{db[u]})")
+                messagebox.showinfo("Thành Công", f"Đã cấm vĩnh viễn thiết bị '{u}' khỏi toàn bộ hệ thống!")
                 
         ctk.CTkButton(card, text="TIÊU DIỆT THIẾT BỊ NÀY", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#E11D48", hover_color="#BE123C", command=ban_it, height=55, corner_radius=14).pack(pady=20, padx=60, fill="x")
 
     def init_t4(self):
-        card = self.build_card(self.frames["tab4"], "Thẻ Bài Ân Xá", "Phá lỗi, tháo gỡ án phạt và sinh chìa khóa ân xá bậc cao.")
+        card = self.build_card(self.frames["tab4"], "Thẻ Bài Ân Xá", "Tháo gỡ án phạt trong sổ đen cho máy tính.")
         self.eau = ctk.CTkEntry(card, height=55, placeholder_text="Nhập Machine ID đang bị cấm...", font=ctk.CTkFont(family="Inter", size=15), fg_color="#09090B", border_color="#27272A", border_width=2, justify="center", corner_radius=12)
         self.eau.pack(pady=10, padx=60, fill="x")
-        ctk.CTkButton(card, text="TẨY ÁN & CẤP MÃ PHỤC HỒI", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#EA580C", hover_color="#C2410C", command=lambda: self.tak.set(self._generate_hmac_key(self.eau.get().strip())), height=55, corner_radius=14).pack(pady=20, padx=60, fill="x")
+        
+        def pardon_it():
+            u = self.eau.get().strip()
+            if u:
+                db = self.get_db()
+                if u in db:
+                    del db[u]
+                    self.save_db(db)
+                self.tak.set(self._generate_hmac_key(u))
+                messagebox.showinfo("Ân Xá", f"Đã gỡ án tử hình cho '{u}'. Khách hàng có thể tiếp tục sử dụng đúng cái Key gốc lúc đầu (bên dưới) để vào học lại.")
+                
+        ctk.CTkButton(card, text="GỠ PHẠT & XUẤT LẠI KEY GỐC", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#EA580C", hover_color="#C2410C", command=pardon_it, height=55, corner_radius=14).pack(pady=20, padx=60, fill="x")
         self.tak = ctk.StringVar()
         ctk.CTkEntry(card, textvariable=self.tak, height=65, font=ctk.CTkFont(family="Consolas", size=19, weight="bold"), justify='center', state='readonly', fg_color="#09090B", text_color="#F97316", border_color="#F97316", border_width=2, corner_radius=12).pack(pady=10, padx=60, fill="x")
 
