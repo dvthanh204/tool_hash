@@ -18,7 +18,7 @@ jobs:
         mkdir -p SlideLock.app/Contents/Resources
         
         # Compile raw Swift files into Mach-O executable executable
-        swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock.app/Contents/MacOS/SlideLock
+        swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock.app/Contents/MacOS/SlideLock -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation
         
         # Create Info.plist
         cat <<EOF > SlideLock.app/Contents/Info.plist
