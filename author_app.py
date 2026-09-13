@@ -72,19 +72,24 @@ class AuthorApp(ctk.CTk):
         except Exception as e: messagebox.showerror("Lỗi", str(e))
 
     def init_t2(self):
-        self.eu = ctk.CTkEntry(self.tab2, width=350, placeholder_text="UUID")
+        self.eu = ctk.CTkEntry(self.tab2, width=350, placeholder_text="UUID / Machine ID")
         self.eu.pack(pady=5)
-        self.ee = ctk.CTkEntry(self.tab2, width=200, placeholder_text="YYYY-MM-DD")
-        self.ee.pack(pady=5)
-        ctk.CTkButton(self.tab2, text="Tạo Key", command=self.gk).pack()
+        # Bỏ nhập ngày tháng
+        ctk.CTkButton(self.tab2, text="Tạo Key", command=self.gk).pack(pady=5)
         self.txt_key = ctk.CTkTextbox(self.tab2, height=120, width=450)
         self.txt_key.pack(pady=5)
 
     def gk(self):
-        u, e = self.eu.get().strip(), self.ee.get().strip()
-        if u and e:
-            k = Fernet(FERNET_KEY).encrypt(json.dumps({"u":u, "e":e, "v":1}).encode()).decode()
-            self.txt_key.delete("0.0", "end"); self.txt_key.insert("0.0", k)
+        import hmac, hashlib
+        u = self.eu.get().strip()
+        if u:
+            # Tạo chữ ký HMAC bằng mật khẩu bí mật (đồng bộ với Mac App)
+            secret = b"12345678901234567890123456789012"
+            sig = hmac.new(secret, u.encode('utf-8'), hashlib.sha256).digest()
+            k = base64.b64encode(sig).decode('utf-8')
+            
+            self.txt_key.delete("0.0", "end")
+            self.txt_key.insert("0.0", k)
 
     def init_t3(self):
         self.eb = ctk.CTkEntry(self.tab3, width=350, placeholder_text="UUID cần cấm")

@@ -1,10 +1,10 @@
 import Foundation
+import CryptoKit
 
 public class LicenseManager {
     
     public static let shared = LicenseManager()
     
-    @Published public var currentLicense: License?
     @Published public var isActivated: Bool = false
     
     private init() {
@@ -12,63 +12,44 @@ public class LicenseManager {
     }
     
     public func loadLicense() {
-        // Read from Keychain Manager (implemented later)
+        // Read from Keychain Manager
         guard let data = KeychainManager.shared.read(service: "com.teachingprotect", account: "license"),
-              let licenseData = try? JSONDecoder().decode(LicenseData.self, from: data) else {
+              let keyBase64 = String(data: data, encoding: .utf8) else {
             self.isActivated = false
             return
         }
         
-        if validate(licenseData: licenseData) {
-            self.currentLicense = licenseData.license
+        if validate(keyBase64: keyBase64) {
             self.isActivated = true
         } else {
-            self.currentLicense = nil
             self.isActivated = false
         }
     }
     
-    public func activate(with licenseFileUrl: URL) -> Bool {
-        do {
-            let data = try Data(contentsOf: licenseFileUrl)
-            
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let licenseData = try decoder.decode(LicenseData.self, from: data)
-            
-            if validate(licenseData: licenseData) {
-                // Save to Keychain
-                KeychainManager.shared.save(data, service: "com.teachingprotect", account: "license")
-                self.currentLicense = licenseData.license
-                self.isActivated = true
-                return true
-            }
-        } catch {
-            print("Activation failed: \(error)")
+    public func activate(withKey keyBase64: String) -> Bool {
+        if validate(keyBase64: keyBase64) {
+             if let data = keyBase64.data(using: .utf8) {
+                 KeychainManager.shared.save(data, service: "com.teachingprotect", account: "license")
+             }
+             self.isActivated = true
+             return true
         }
         return false
     }
     
-    private func validate(licenseData: LicenseData) -> Bool {
-        // 1. Verify Signature
-        guard SignatureVerifier.verify(licenseData: licenseData) else {
-            print("Signature is invalid.")
-            return false
-        }
-        
-        // 2. Verify Machine ID
+    private func validate(keyBase64: String) -> Bool {
+        // Hmac verification against machine Id
         let currentMachine = MachineID.current
-        guard licenseData.license.machineId == currentMachine else {
-            print("Machine ID mismatch. Bound to \(licenseData.license.machineId), but this is \(currentMachine)")
+        guard let secretData = "12345678901234567890123456789012".data(using: .utf8),
+              let messageData = currentMachine.data(using: .utf8) else {
             return false
         }
         
-        // 3. Verify Expiry Date
-        guard Date() < licenseData.license.expiresAt else {
-            print("License has expired on \(licenseData.license.expiresAt)")
-            return false
-        }
+        let symmetricKey = SymmetricKey(data: secretData)
+        let hmac = HMAC<SHA256>.authenticationCode(for: messageData, using: symmetricKey)
+        let expectedSignature = Data(hmac).base64EncodedString()
         
-        return true
+        // So sánh 2 chuỗi Base64
+        return keyBase64.trimmingCharacters(in: .whitespacesAndNewlines) == expectedSignature
     }
 }

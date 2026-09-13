@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct ActivationView: View {
-    @State private var licenseKeyPath = ""
+    @EnvironmentObject var appState: AppState
+    @State private var licenseKey = ""
     @State private var isActivating = false
     @State private var message = ""
     
@@ -38,7 +39,7 @@ struct ActivationView: View {
                 .background(Color.secondary.opacity(0.1))
                 .cornerRadius(8)
                 
-                Text("Gửi Machine ID này cho Admin để nhận file License.")
+                Text("Gửi Machine ID này cho Admin để nhận Key kích hoạt.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -46,25 +47,13 @@ struct ActivationView: View {
             
             Divider().padding(.vertical)
             
-            HStack {
-                Text(licenseKeyPath.isEmpty ? "Select License File..." : (licenseKeyPath as NSString).lastPathComponent)
-                    .foregroundColor(licenseKeyPath.isEmpty ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(8)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Nhập Password Key:")
+                    .font(.headline)
                 
-                Button("Browse") {
-                    let panel = NSOpenPanel()
-                    panel.allowsMultipleSelection = false
-                    panel.canChooseDirectories = false
-                    panel.canChooseFiles = true
-                    panel.allowedContentTypes = [.data] // Or custom extension like .tpkey
-                    
-                    if panel.runModal() == .OK {
-                        licenseKeyPath = panel.url?.path ?? ""
-                    }
-                }
+                TextField("Ví dụ: dGVzdA==", text: $licenseKey)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.system(.body, design: .monospaced))
             }
             
             if !message.isEmpty {
@@ -77,7 +66,7 @@ struct ActivationView: View {
                 activate()
             }
             .buttonStyle(.borderedProminent)
-            .disabled(licenseKeyPath.isEmpty || isActivating)
+            .disabled(licenseKey.isEmpty || isActivating)
             .padding(.top)
         }
         .padding(40)
@@ -85,15 +74,15 @@ struct ActivationView: View {
     }
     
     private func activate() {
-        let url = URL(fileURLWithPath: licenseKeyPath)
         isActivating = true
         message = ""
         
-        let success = LicenseManager.shared.activate(with: url)
+        let success = LicenseManager.shared.activate(withKey: licenseKey)
         if success {
             message = "Activation Successful!"
+            appState.isActivated = true
         } else {
-            message = "Activation Failed. Invalid or expired license, or machine mismatch."
+            message = "Activation Failed. Invalid key or machine mismatch."
         }
         isActivating = false
     }
