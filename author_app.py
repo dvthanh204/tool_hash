@@ -27,42 +27,48 @@ class AuthorApp(ctk.CTk):
         json.dump(d, open("revocations.json", "w"), indent=4)
 
     def init_t1(self):
-        self.p_pth = self.a_pth = None
-        ctk.CTkButton(self.tab1, text="Chọn .pptx", command=self.sel_p).pack(pady=5)
-        self.l_p = ctk.CTkLabel(self.tab1, text="Chưa chọn")
+        self.p_pths = []
+        ctk.CTkButton(self.tab1, text="Chọn nhiều file .pptx", command=self.sel_p).pack(pady=5)
+        self.l_p = ctk.CTkLabel(self.tab1, text="Chưa chọn file nào")
         self.l_p.pack()
-        ctk.CTkButton(self.tab1, text="Chọn SlideLock.app", command=self.sel_a).pack(pady=5)
-        self.l_a = ctk.CTkLabel(self.tab1, text="Chưa chọn")
-        self.l_a.pack()
-        ctk.CTkButton(self.tab1, text="Đóng Gói", command=self.pack, fg_color="green").pack(pady=20)
+        ctk.CTkButton(self.tab1, text="Đóng Gói Ngay", command=self.pack, fg_color="green").pack(pady=20)
         
     def sel_p(self):
-        self.p_pth = filedialog.askopenfilename(filetypes=[("PPTX", "*.pptx")])
-        if self.p_pth: self.l_p.configure(text=os.path.basename(self.p_pth))
+        self.p_pths = filedialog.askopenfilenames(filetypes=[("PPTX", "*.pptx")])
+        if self.p_pths: self.l_p.configure(text=f"Đã chọn {len(self.p_pths)} file .pptx")
 
-    def sel_a(self):
-        self.a_pth = filedialog.askdirectory(title="Chọn app")
-        if self.a_pth: self.l_a.configure(text=os.path.basename(self.a_pth))
 
     def pack(self):
-        if not self.p_pth or not self.a_pth: return messagebox.showerror("Lỗi", "Chưa chọn file")
+        if not self.p_pths: return messagebox.showerror("Lỗi", "Chưa chọn file bài giảng")
         try:
             mz = io.BytesIO()
             with zipfile.ZipFile(mz, 'w', zipfile.ZIP_DEFLATED) as zf:
-                zf.write(self.p_pth, "presentation.pptx")
+                for p_pth in self.p_pths:
+                    zf.write(p_pth, os.path.basename(p_pth))
                 zf.write("revocations.json", "revocations.json") if os.path.exists("revocations.json") else zf.writestr("revocations.json", "{}")
             enc = Fernet(FERNET_KEY).encrypt(mz.getvalue())
             with open("baigiang.khoa", "wb") as f: f.write(enc)
             
-            with zipfile.ZipFile("KhoaHoc_Mac.zip", 'w', zipfile.ZIP_DEFLATED) as zf:
-                zf.write("baigiang.khoa", "baigiang.khoa")
-                p_dir = os.path.dirname(self.a_pth)
-                for r, d, fs in os.walk(self.a_pth):
-                    for f in fs:
-                        fp = os.path.join(r, f)
-                        zf.write(fp, os.path.relpath(fp, p_dir))
-            os.remove("baigiang.khoa")
-            messagebox.showinfo("OK", "Đóng gói xong vào KhoaHoc_Mac.zip")
+            if os.path.exists("SlideLock.app"):
+                with zipfile.ZipFile("KhoaHoc_Mac.zip", 'w', zipfile.ZIP_DEFLATED) as zf:
+                    # Chèn file khóa học thẳng vào nhân của Mac App
+                    zf.write("baigiang.khoa", "SlideLock.app/Contents/Resources/baigiang.khoa")
+                    for r, d, fs in os.walk("SlideLock.app"):
+                        for f in fs:
+                            fp = os.path.join(r, f)
+                            arcname = os.path.relpath(fp, ".").replace("\\", "/")
+                            z_info = zipfile.ZipInfo.from_file(fp, arcname)
+                            # Bơm quyền thực thi Unix (chmod +x) để Mac không báo "App Damaged"
+                            if "Contents/MacOS/" in arcname:
+                                z_info.external_attr = (0x81ED) << 16 # 0o100755: 0o755 + regular file
+                            else:
+                                z_info.external_attr = (0x81A4) << 16 # 0o644 + regular file
+                            with open(fp, "rb") as f_in:
+                                zf.writestr(z_info, f_in.read())
+                os.remove("baigiang.khoa")
+                messagebox.showinfo("OK", "Đóng gói xong vào KhoaHoc_Mac.zip\nKhách Mac giải nén ra sẽ thấy duy nhất 1 file App để mở!")
+            else:
+                messagebox.showwarning("Thiếu Code Hệ Thống", "Chưa thấy thư mục gốc SlideLock.app để ghép, tool chỉ xuất được mỗi file baigiang.khoa rời.")
         except Exception as e: messagebox.showerror("Lỗi", str(e))
 
     def init_t2(self):
@@ -71,14 +77,14 @@ class AuthorApp(ctk.CTk):
         self.ee = ctk.CTkEntry(self.tab2, width=200, placeholder_text="YYYY-MM-DD")
         self.ee.pack(pady=5)
         ctk.CTkButton(self.tab2, text="Tạo Key", command=self.gk).pack()
-        self.tk = ctk.CTkTextbox(self.tab2, height=120, width=450)
-        self.tk.pack(pady=5)
+        self.txt_key = ctk.CTkTextbox(self.tab2, height=120, width=450)
+        self.txt_key.pack(pady=5)
 
     def gk(self):
         u, e = self.eu.get().strip(), self.ee.get().strip()
         if u and e:
             k = Fernet(FERNET_KEY).encrypt(json.dumps({"u":u, "e":e, "v":1}).encode()).decode()
-            self.tk.delete("0.0", "end"); self.tk.insert("0.0", k)
+            self.txt_key.delete("0.0", "end"); self.txt_key.insert("0.0", k)
 
     def init_t3(self):
         self.eb = ctk.CTkEntry(self.tab3, width=350, placeholder_text="UUID cần cấm")
