@@ -33,7 +33,7 @@ public class LicenseManager {
             let data = try Data(contentsOf: licenseFileUrl)
             
             let decoder = JSONDecoder()
-            decoder.dateEncodingStrategy = .iso8601
+            decoder.dateDecodingStrategy = .iso8601
             let licenseData = try decoder.decode(LicenseData.self, from: data)
             
             if validate(licenseData: licenseData) {
