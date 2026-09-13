@@ -7,70 +7,104 @@ struct ActivationView: View {
     @State private var message = ""
     
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "lock.shield.fill")
-                .font(.system(size: 50))
-                .foregroundColor(.blue)
+        ZStack {
+            Color(NSColor.windowBackgroundColor).edgesIgnoringSafeArea(.all)
             
-            Text("Teaching Protect")
-                .font(.largeTitle)
-                .bold()
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Your Machine ID:")
-                    .font(.headline)
+            VStack(spacing: 30) {
                 
-                HStack {
-                    Text(MachineID.current)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
+                VStack(spacing: 12) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 64, weight: .semibold))
+                        .foregroundStyle(.linearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
                     
-                    Spacer()
+                    Text("SlideLock Secure")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
                     
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(MachineID.current, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .buttonStyle(.borderless)
+                    Text("Trình Học Trực Tuyến Chống Sao Chép")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
                 }
-                .padding()
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(8)
+                .padding(.top, 10)
                 
-                Text("Gửi Machine ID này cho Admin để nhận Key kích hoạt.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.top, 10)
-            
-            Divider().padding(.vertical)
-            
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Nhập Password Key:")
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("MÃ BẢO MẬT THIẾT BỊ (MACHINE ID)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.secondary)
+                        
+                    HStack {
+                        Text(MachineID.current)
+                            .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                            .textSelection(.enabled)
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
+                        
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(MachineID.current, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.clipboard")
+                                .font(.system(size: 16))
+                                .foregroundColor(.blue)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy Machine ID")
+                    }
+                    .padding(16)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(10)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.2), lineWidth: 1))
+                    
+                    Text("Gửi mã này cho Admin để nhận Khóa kích hoạt bản quyền.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.blue)
+                }
                 
-                TextField("Ví dụ: dGVzdA==", text: $licenseKey)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .font(.system(.body, design: .monospaced))
+                Divider().opacity(0.5)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("NHẬP MẬT KHẨU KHÓA BÀI HỌC")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.secondary)
+                        
+                    TextField("VD: V1-O2X0...", text: $licenseKey)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 16, weight: .medium, design: .monospaced))
+                        .padding(16)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(10)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.2), lineWidth: 1))
+                }
+                
+                if !message.isEmpty {
+                    Text(message)
+                        .foregroundColor(.red)
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.top, -10)
+                }
+                
+                Button(action: activate) {
+                    HStack {
+                        Spacer()
+                        Image(systemName: "key.fill")
+                        Text(isActivating ? "ĐANG XÁC THỰC..." : "MỞ BÀI GIẢNG")
+                            .fontWeight(.bold)
+                        Spacer()
+                    }
+                    .padding()
+                    .background(licenseKey.isEmpty ? Color.gray.opacity(0.5) : Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+                .disabled(licenseKey.isEmpty || isActivating)
+                .contentShape(Rectangle())
             }
-            
-            if !message.isEmpty {
-                Text(message)
-                    .foregroundColor(.red)
-                    .font(.caption)
-            }
-            
-            Button("Activate License") {
-                activate()
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(licenseKey.isEmpty || isActivating)
-            .padding(.top)
+            .padding(40)
+            .background(Color(NSColor.windowBackgroundColor))
         }
-        .padding(40)
-        .frame(width: 500)
+        .frame(width: 540)
     }
     
     private func activate() {

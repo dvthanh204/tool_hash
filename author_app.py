@@ -1,24 +1,54 @@
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import json, os, zipfile, io, base64
-from cryptography.fernet import Fernet
+import hmac, hashlib
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-FERNET_KEY = base64.urlsafe_b64encode(b'12345678901234567890123456789012')
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
 
 class AuthorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Course DRM Admin - macOS")
-        self.geometry("600x550")
+        self.title("SlideLock Admin Dashboard")
+        self.geometry("900x600")
+        self.configure(fg_color="#0F172A")
         
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(expand=True, fill="both", padx=10, pady=10)
-        self.tab1 = self.tabview.add("Đóng gói (.khoa)")
-        self.tab2 = self.tabview.add("Cấp Key")
-        self.tab3 = self.tabview.add("Sổ Đen")
-        self.tab4 = self.tabview.add("Ân Xá")
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
         
+        # --- SIDEBAR ---
+        self.sidebar_frame = ctk.CTkFrame(self, fg_color="#1E293B", width=220, corner_radius=0)
+        self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
+        self.sidebar_frame.grid_rowconfigure(5, weight=1)
+        
+        ctk.CTkLabel(self.sidebar_frame, text="🛡 SLIDELOCK", font=ctk.CTkFont(family="Inter", size=22, weight="bold"), text_color="#38BDF8").pack(pady=(30, 5))
+        ctk.CTkLabel(self.sidebar_frame, text="Mac DRM Panel", font=ctk.CTkFont(family="Inter", size=12), text_color="#94A3B8").pack(pady=(0, 30))
+        
+        self.nav_btns = []
+        def nav_btn(text, cmd):
+            btn = ctk.CTkButton(self.sidebar_frame, text=text, font=ctk.CTkFont(family="Inter", size=14, weight="bold"), fg_color="transparent", text_color="#CBD5E1", hover_color="#334155", anchor="w", height=45, corner_radius=8, command=cmd)
+            btn.pack(pady=5, padx=20, fill="x")
+            self.nav_btns.append(btn)
+            return btn
+            
+        nav_btn("📦 1. Đóng Gói (Mã Hóa)", lambda: self.select_menu("tab1"))
+        nav_btn("🔑 2. Cấp Key Mới", lambda: self.select_menu("tab2"))
+        nav_btn("🔒 3. Sổ Đen Khóa Máy", lambda: self.select_menu("tab3"))
+        nav_btn("🔓 4. Ân Xá (Cấp Lại)", lambda: self.select_menu("tab4"))
+        
+        # --- MAIN CONTENT ---
+        self.main_frame = ctk.CTkFrame(self, fg_color="#0F172A", corner_radius=0)
+        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=30, pady=30)
+        
+        self.frames = {}
+        self.frames["tab1"] = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.frames["tab2"] = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.frames["tab3"] = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.frames["tab4"] = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+
         self.init_t1(); self.init_t2(); self.init_t3(); self.init_t4()
+        self.select_menu("tab1")
 
     def get_db(self):
         return json.load(open("revocations.json", "r")) if os.path.exists("revocations.json") else {}
@@ -26,110 +56,102 @@ class AuthorApp(ctk.CTk):
     def save_db(self, d):
         json.dump(d, open("revocations.json", "w"), indent=4)
 
+    def select_menu(self, menu_id):
+        for btn in self.nav_btns:
+            btn.configure(fg_color="transparent", text_color="#CBD5E1")
+        idx = ["tab1", "tab2", "tab3", "tab4"].index(menu_id)
+        self.nav_btns[idx].configure(fg_color="#38BDF8", text_color="#0F172A")
+        for f in self.frames.values(): f.pack_forget()
+        self.frames[menu_id].pack(fill="both", expand=True)
+
+    def build_card(self, parent, title, desc):
+        card = ctk.CTkFrame(parent, fg_color="#1E293B", corner_radius=16, border_width=1, border_color="#334155")
+        card.pack(fill="both", expand=True, pady=10)
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(family="Inter", size=20, weight="bold"), text_color="#F8FAFC").pack(pady=(30, 5), anchor="w", padx=40)
+        ctk.CTkLabel(card, text=desc, font=ctk.CTkFont(family="Inter", size=13), text_color="#94A3B8").pack(pady=(0, 20), anchor="w", padx=40)
+        return card
+
     def init_t1(self):
-        self.p_pths = []
-        ctk.CTkButton(self.tab1, text="Chọn nhiều file .pptx", command=self.sel_p).pack(pady=5)
-        self.l_p = ctk.CTkLabel(self.tab1, text="Chưa chọn file nào")
-        self.l_p.pack()
-        ctk.CTkButton(self.tab1, text="Đóng Gói Ngay", command=self.pack, fg_color="green").pack(pady=20)
-        
+        card = self.build_card(self.frames["tab1"], "Đóng Gói Bài Giảng", "Mã hóa và nhúng DRM vào các file slide PPTX cho Mac.")
+        self.filepath_var = ctk.StringVar()
+        entry_file = ctk.CTkEntry(card, textvariable=self.filepath_var, height=45, placeholder_text="Chọn đường dẫn file .pptx...", font=ctk.CTkFont(family="Inter", size=13), fg_color="#0F172A", border_color="#475569")
+        entry_file.pack(padx=40, fill="x", pady=10)
+        btn_browse = ctk.CTkButton(card, text="📂 Duyệt File", font=ctk.CTkFont(family="Inter", size=13, weight="bold"), command=self.sel_p, fg_color="#334155", hover_color="#475569", height=40)
+        btn_browse.pack(padx=40, anchor="e")
+        btn_build = ctk.CTkButton(card, text="🛡 MÃ HÓA BẢN QUYỀN", fg_color="#10B981", hover_color="#059669", font=ctk.CTkFont(family="Inter", size=15, weight="bold"), command=self.pack_mac, height=50)
+        btn_build.pack(pady=40, padx=40, fill="x")
+
     def sel_p(self):
-        self.p_pths = filedialog.askopenfilenames(filetypes=[("PPTX", "*.pptx")])
-        if self.p_pths: self.l_p.configure(text=f"Đã chọn {len(self.p_pths)} file .pptx")
+        pths = filedialog.askopenfilenames(filetypes=[("PPTX", "*.pptx")])
+        if pths: self.filepath_var.set(";".join(pths))
 
-
-    def pack(self):
-        if not self.p_pths: return messagebox.showerror("Lỗi", "Chưa chọn file bài giảng")
+    def pack_mac(self):
+        p_pths = self.filepath_var.get().split(';')
+        if not p_pths or not p_pths[0]: return messagebox.showerror("Lỗi", "Chưa chọn file!")
         try:
             mz = io.BytesIO()
             with zipfile.ZipFile(mz, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for p_pth in self.p_pths:
-                    zf.write(p_pth, os.path.basename(p_pth))
+                for p_pth in p_pths: zf.write(p_pth, os.path.basename(p_pth))
                 zf.write("revocations.json", "revocations.json") if os.path.exists("revocations.json") else zf.writestr("revocations.json", "{}")
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            secret = b"12345678901234567890123456789012"
-            aesgcm = AESGCM(secret)
+            
+            aesgcm = AESGCM(b"12345678901234567890123456789012")
             nonce = os.urandom(12)
-            zip_bytes = mz.getvalue()
-            ct = aesgcm.encrypt(nonce, zip_bytes, None)
-            with open("baigiang.khoa", "wb") as f: f.write(nonce + ct)
+            enc = aesgcm.encrypt(nonce, mz.getvalue(), None)
+            with open("baigiang.khoa", "wb") as f: f.write(nonce + enc)
             
             if os.path.exists("SlideLock.app"):
                 with zipfile.ZipFile("KhoaHoc_Mac.zip", 'w', zipfile.ZIP_DEFLATED) as zf:
-                    # Chèn file khóa học thẳng vào nhân của Mac App
                     zf.write("baigiang.khoa", "SlideLock.app/Contents/Resources/baigiang.khoa")
                     for r, d, fs in os.walk("SlideLock.app"):
                         for f in fs:
                             fp = os.path.join(r, f)
                             arcname = os.path.relpath(fp, ".").replace("\\", "/")
                             z_info = zipfile.ZipInfo.from_file(fp, arcname)
-                            # Bơm quyền thực thi Unix (chmod +x) để Mac không báo "App Damaged"
-                            if "Contents/MacOS/" in arcname:
-                                z_info.external_attr = (0x81ED) << 16 # 0o100755: 0o755 + regular file
-                            else:
-                                z_info.external_attr = (0x81A4) << 16 # 0o644 + regular file
-                            with open(fp, "rb") as f_in:
-                                zf.writestr(z_info, f_in.read())
+                            if "Contents/MacOS/" in arcname: z_info.external_attr = (0x81ED) << 16
+                            else: z_info.external_attr = (0x81A4) << 16
+                            with open(fp, "rb") as f_in: zf.writestr(z_info, f_in.read())
                 os.remove("baigiang.khoa")
-                messagebox.showinfo("OK", "Đóng gói xong vào KhoaHoc_Mac.zip\nKhách Mac giải nén ra sẽ thấy duy nhất 1 file App để mở!")
+                messagebox.showinfo("Thành Công", "Mã hóa xong vào KhoaHoc_Mac.zip!")
             else:
-                messagebox.showwarning("Thiếu Code Hệ Thống", "Chưa thấy thư mục gốc SlideLock.app để ghép, tool chỉ xuất được mỗi file baigiang.khoa rời.")
+                messagebox.showwarning("Thiếu Thư Mục Tương Thích", "Chưa thấy thư mục SlideLock.app, chỉ xuất file .khoa")
         except Exception as e: messagebox.showerror("Lỗi", str(e))
 
-    def init_t2(self):
-        self.eu = ctk.CTkEntry(self.tab2, width=350, placeholder_text="UUID / Machine ID")
-        self.eu.pack(pady=5)
-        # Bỏ nhập ngày tháng
-        ctk.CTkButton(self.tab2, text="Tạo Key", command=self.gk).pack(pady=5)
-        self.txt_key = ctk.CTkTextbox(self.tab2, height=120, width=450)
-        self.txt_key.pack(pady=5)
+    def _generate_hmac_key(self, u):
+        v = self.get_db().get(u, 0) + 1
+        raw = f"{u}_{v}".encode('utf-8')
+        sig = hmac.new(b"12345678901234567890123456789012", raw, hashlib.sha256).digest()
+        return f"V{v}-" + base64.b64encode(sig).decode('utf-8')
 
-    def gk(self):
-        import hmac, hashlib, base64
-        u = self.eu.get().strip()
-        if u:
-            db = self.get_db()
-            v = db.get(u, 0) + 1
-            secret = b"12345678901234567890123456789012"
-            raw = f"{u}_{v}".encode('utf-8')
-            sig = hmac.new(secret, raw, hashlib.sha256).digest()
-            k = f"V{v}-" + base64.b64encode(sig).decode('utf-8')
-            
-            self.txt_key.delete("0.0", "end")
-            self.txt_key.insert("0.0", k)
+    def init_t2(self):
+        card = self.build_card(self.frames["tab2"], "Cấp Mật Khẩu Mới", "Tạo mã kích hoạt cho Học viên dựa trên Mac ID.")
+        self.eu = ctk.CTkEntry(card, height=45, placeholder_text="Nhập Machine ID...", font=ctk.CTkFont(family="Inter", size=14), fg_color="#0F172A", border_color="#475569")
+        self.eu.pack(pady=10, padx=40, fill="x")
+        ctk.CTkButton(card, text="🔑 TẠO MẬT KHẨU", font=ctk.CTkFont(family="Inter", size=14, weight="bold"), fg_color="#2563EB", hover_color="#1D4ED8", command=lambda: self.txt_key.set(self._generate_hmac_key(self.eu.get().strip())), height=45).pack(pady=15, padx=40, fill="x")
+        self.txt_key = ctk.StringVar()
+        ctk.CTkEntry(card, textvariable=self.txt_key, height=50, font=ctk.CTkFont(family="Consolas", size=16), justify='center', state='readonly', fg_color="#0F172A", text_color="#10B981", border_color="#10B981").pack(pady=10, padx=40, fill="x")
 
     def init_t3(self):
-        self.eb = ctk.CTkEntry(self.tab3, width=350, placeholder_text="UUID cần cấm")
-        self.eb.pack(pady=10)
-        ctk.CTkButton(self.tab3, text="Cấm", fg_color="red", command=self.ban).pack()
-
-    def ban(self):
-        u = self.eb.get().strip()
-        if u:
-            db = self.get_db()
-            db[u] = db.get(u, 0) + 1
-            self.save_db(db)
-            messagebox.showinfo("OK", f"Cấm {u} version {db[u]}")
+        card = self.build_card(self.frames["tab3"], "Thu Hồi (Sổ Đen)", "Đưa một ID vào sổ đen để tước quyền ở khóa học.")
+        self.eb = ctk.CTkEntry(card, height=45, placeholder_text="Nhập ID cần cấm...", font=ctk.CTkFont(family="Inter", size=14), fg_color="#0F172A", text_color="#EF4444", border_color="#475569")
+        self.eb.pack(pady=10, padx=40, fill="x")
+        
+        def ban_it():
+            u = self.eb.get().strip()
+            if u:
+                db = self.get_db()
+                db[u] = db.get(u, 0) + 1
+                self.save_db(db)
+                messagebox.showinfo("OK", f"Đã khóa máy {u} (v{db[u]})")
+                
+        ctk.CTkButton(card, text="🔒 CHẶN MÁY NÀY", font=ctk.CTkFont(family="Inter", size=14, weight="bold"), fg_color="#EF4444", hover_color="#DC2626", command=ban_it, height=45).pack(pady=25, padx=40, fill="x")
 
     def init_t4(self):
-        self.eau = ctk.CTkEntry(self.tab4, width=350, placeholder_text="UUID ân xá")
-        self.eau.pack(pady=5)
-        # Bỏ nhập ngày tháng
-        ctk.CTkButton(self.tab4, text="Tạo Key Ân Xá", fg_color="orange", command=self.pa).pack(pady=5)
-        self.tak = ctk.CTkTextbox(self.tab4, height=120, width=450)
-        self.tak.pack(pady=5)
-
-    def pa(self):
-        import hmac, hashlib, base64
-        u = self.eau.get().strip()
-        if u:
-            v = self.get_db().get(u, 0) + 1
-            secret = b"12345678901234567890123456789012"
-            raw = f"{u}_{v}".encode('utf-8')
-            sig = hmac.new(secret, raw, hashlib.sha256).digest()
-            k = f"V{v}-" + base64.b64encode(sig).decode('utf-8')
-            self.tak.delete("0.0", "end")
-            self.tak.insert("0.0", k)
+        card = self.build_card(self.frames["tab4"], "Gỡ Cấm & Phục Hồi", "Cấp một chìa khóa đặc quyền để gỡ khóa.")
+        self.eau = ctk.CTkEntry(card, height=45, placeholder_text="Nhập Machine ID ân xá...", font=ctk.CTkFont(family="Inter", size=14), fg_color="#0F172A", border_color="#475569")
+        self.eau.pack(pady=10, padx=40, fill="x")
+        ctk.CTkButton(card, text="🔓 GỠ KHÓA & SINH MÃ MỚI", font=ctk.CTkFont(family="Inter", size=14, weight="bold"), fg_color="#F59E0B", hover_color="#D97706", command=lambda: self.tak.set(self._generate_hmac_key(self.eau.get().strip())), height=45).pack(pady=15, padx=40, fill="x")
+        self.tak = ctk.StringVar()
+        ctk.CTkEntry(card, textvariable=self.tak, height=50, font=ctk.CTkFont(family="Consolas", size=16), justify='center', state='readonly', fg_color="#0F172A", text_color="#F59E0B", border_color="#F59E0B").pack(pady=10, padx=40, fill="x")
 
 if __name__ == "__main__":
     AuthorApp().mainloop()

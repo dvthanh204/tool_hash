@@ -9,32 +9,90 @@ struct MainView: View {
     
     var body: some View {
         NavigationView {
-            List(lessons, id: \.self) { lesson in
-                HStack {
-                    Image(systemName: "chart.bar.doc.horizontal")
-                        .foregroundColor(.blue)
+            ZStack {
+                Color(NSColor.windowBackgroundColor).edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 0) {
+                    Text("DANH SÁCH BÀI GIẢNG")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                        .padding(.bottom, 10)
                     
-                    Text(lesson)
-                        .font(.system(.body, design: .rounded))
-                    
-                    Spacer()
-                    
-                    Button("Open") {
-                        openLesson(lesson)
+                    List(lessons, id: \.self) { lesson in
+                        HStack(spacing: 16) {
+                            ZStack {
+                                Circle()
+                                    .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: "play.rectangle.fill")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 14))
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(lesson)
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                Text("Bài giảng PowerPoint bảo mật")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Button(action: { openLesson(lesson) }) {
+                                Text("Học Bài")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 6)
+                                    .background(isProcessing ? Color.gray.opacity(0.3) : Color.blue.opacity(0.15))
+                                    .foregroundColor(isProcessing ? .gray : .blue)
+                                    .cornerRadius(20)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isProcessing)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.1), lineWidth: 1))
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
                     }
-                    .buttonStyle(.bordered)
-                    .disabled(isProcessing)
+                    .listStyle(.plain)
                 }
-                .padding(.vertical, 4)
             }
-            .listStyle(SidebarListStyle())
-            .frame(minWidth: 300)
+            .frame(minWidth: 350)
             
-            Text(statusMessage)
-                .foregroundColor(isProcessing ? .blue : .secondary)
+            ZStack {
+                Color(NSColor.controlBackgroundColor).edgesIgnoringSafeArea(.all)
+                
+                VStack(spacing: 20) {
+                    if isProcessing {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                        Text(statusMessage)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.blue)
+                    } else {
+                        Image(systemName: "app.dashed")
+                            .font(.system(size: 50))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text(statusMessage)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
+                }
                 .frame(minWidth: 400, minHeight: 400)
+            }
         }
-        .navigationTitle("Teaching Protect Library")
+        .navigationTitle("Khóa Học Từ Xa (SlideLock)")
         .onAppear {
             self.lessons = extractLessons()
         }
