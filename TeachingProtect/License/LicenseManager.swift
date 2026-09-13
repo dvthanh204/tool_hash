@@ -12,9 +12,8 @@ public class LicenseManager {
     }
     
     public func loadLicense() {
-        // Read from Keychain Manager
-        guard let data = KeychainManager.shared.read(service: "com.teachingprotect", account: "license"),
-              let keyBase64 = String(data: data, encoding: .utf8) else {
+        // Hỗ trợ đọc Key lưu tự động từ UserDefaults để các lần sau vào thẳng không cần nhập
+        guard let keyBase64 = UserDefaults.standard.string(forKey: "com.teachingprotect.license") else {
             self.isActivated = false
             return
         }
@@ -28,9 +27,7 @@ public class LicenseManager {
     
     public func activate(withKey keyBase64: String) -> Bool {
         if validate(keyBase64: keyBase64) {
-             if let data = keyBase64.data(using: .utf8) {
-                 KeychainManager.shared.save(data, service: "com.teachingprotect", account: "license")
-             }
+             UserDefaults.standard.set(keyBase64, forKey: "com.teachingprotect.license")
              self.isActivated = true
              return true
         }
