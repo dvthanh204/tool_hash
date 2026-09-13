@@ -111,7 +111,13 @@ class AuthorApp(ctk.CTk):
             with open("baigiang.khoa", "wb") as f: f.write(nonce + enc)
             
             if os.path.exists("SlideLock.app"):
-                with zipfile.ZipFile("KhoaHoc_Mac.zip", 'w', zipfile.ZIP_DEFLATED) as zf:
+                counter = 1
+                out_name = "KhoaHoc_Mac_1.zip"
+                while os.path.exists(out_name):
+                    counter += 1
+                    out_name = f"KhoaHoc_Mac_{counter}.zip"
+                    
+                with zipfile.ZipFile(out_name, 'w', zipfile.ZIP_DEFLATED) as zf:
                     zf.write("baigiang.khoa", "SlideLock.app/Contents/Resources/baigiang.khoa")
                     for r, d, fs in os.walk("SlideLock.app"):
                         for f in fs:
@@ -122,7 +128,7 @@ class AuthorApp(ctk.CTk):
                             else: z_info.external_attr = (0x81A4) << 16
                             with open(fp, "rb") as f_in: zf.writestr(z_info, f_in.read())
                 os.remove("baigiang.khoa")
-                messagebox.showinfo("Thành Công", "Đã xuất xong gói KhoaHoc_Mac.zip siêu bảo mật!")
+                messagebox.showinfo("Thành Công", f"Đã xuất xong gói {out_name} siêu bảo mật!")
             else:
                 messagebox.showwarning("Cảnh Báo", "Phiên bản này chỉ xuất file .khoa vì chưa có thư mục app vỏ hệ thống.")
         except Exception as e: messagebox.showerror("Lỗi", str(e))
