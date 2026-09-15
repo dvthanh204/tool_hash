@@ -118,12 +118,39 @@ class AuthorApp(ctk.CTk):
                     out_name = f"KhoaHoc_Mac_{counter}.zip"
                     
                 with zipfile.ZipFile(out_name, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    zf.write("baigiang.khoa", "SlideLock.app/Contents/Resources/baigiang.khoa")
+                    for d_path in ["SlideLock.app/", "SlideLock.app/Contents/", "SlideLock.app/Contents/Resources/", "SlideLock.app/Contents/MacOS/"]:
+                        z_info_dir = zipfile.ZipInfo(d_path)
+                        z_info_dir.create_system = 3
+                        z_info_dir.external_attr = (0x41ED) << 16
+                        zf.writestr(z_info_dir, "")
+                    
+                    z_info_file = zipfile.ZipInfo("SlideLock.app/Contents/Resources/baigiang.khoa")
+                    z_info_file.create_system = 3
+                    z_info_file.external_attr = (0x81A4) << 16
+                    with open("baigiang.khoa", "rb") as f_in: zf.writestr(z_info_file, f_in.read())
+                    
                     for r, d, fs in os.walk("SlideLock.app"):
+                        if "_CodeSignature" in r:
+                            continue
+                        for folder in d:
+                            if folder == "_CodeSignature":
+                                continue
+                            dp = os.path.join(r, folder)
+                            arcname_dir = os.path.relpath(dp, ".").replace("\\", "/") + "/"
+                            if arcname_dir in ["SlideLock.app/Contents/", "SlideLock.app/Contents/Resources/", "SlideLock.app/Contents/MacOS/"]:
+                                continue
+                            z_info = zipfile.ZipInfo(arcname_dir)
+                            z_info.create_system = 3
+                            z_info.external_attr = (0x41ED) << 16 # drwxr-xr-x
+                            zf.writestr(z_info, "")
+                            
                         for f in fs:
                             fp = os.path.join(r, f)
                             arcname = os.path.relpath(fp, ".").replace("\\", "/")
+                            if "_CodeSignature" in arcname:
+                                continue
                             z_info = zipfile.ZipInfo.from_file(fp, arcname)
+                            z_info.create_system = 3
                             if "Contents/MacOS/" in arcname: z_info.external_attr = (0x81ED) << 16
                             else: z_info.external_attr = (0x81A4) << 16
                             with open(fp, "rb") as f_in: zf.writestr(z_info, f_in.read())

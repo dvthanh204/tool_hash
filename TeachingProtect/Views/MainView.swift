@@ -202,7 +202,18 @@ struct MainView: View {
             <commands>
                 <command idMso="FileSaveAs" enabled="false"/>
                 <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+                <command idMso="FileSaveAsPicture" enabled="false"/>
                 <command idMso="FileSaveACopy" enabled="false"/>
+                <command idMso="FileExport" enabled="false"/>
+                <command idMso="FileExportAsPdf" enabled="false"/>
+                <command idMso="PublishToPdfOrXps" enabled="false"/>
+                <command idMso="CreateVideo" enabled="false"/>
+                <command idMso="FileExportToVideo" enabled="false"/>
+                <command idMso="PackageForCd" enabled="false"/>
+                <command idMso="CreateHandouts" enabled="false"/>
+                <command idMso="ShareDocument" enabled="false"/>
+                <command idMso="FileSendAsAttachment" enabled="false"/>
+                <command idMso="FileSendAsPdf" enabled="false"/>
                 <command idMso="FilePrint" enabled="false"/>
                 <command idMso="FilePrintQuick" enabled="false"/>
                 <command idMso="PrintPreviewAndPrint" enabled="false"/>
@@ -217,6 +228,9 @@ struct MainView: View {
                     <tab idMso="TabSave" visible="false"/>
                     <button idMso="FileSaveAs" visible="false"/>
                     <tab idMso="TabPrint" visible="false"/>
+                    <tab idMso="TabExport" visible="false"/>
+                    <tab idMso="TabShare" visible="false"/>
+                    <tab idMso="TabPublish" visible="false"/>
                 </backstage>
             </ribbon>
         </customUI>
