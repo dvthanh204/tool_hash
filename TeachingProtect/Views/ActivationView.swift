@@ -15,7 +15,7 @@ struct ActivationView: View {
                 VStack(spacing: 12) {
                     Image(systemName: "lock.shield.fill")
                         .font(.system(size: 64, weight: .semibold))
-                        .foregroundStyle(.linearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .foregroundColor(.blue)
                         .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
                     
                     Text("SlideLock Secure")
@@ -35,7 +35,6 @@ struct ActivationView: View {
                     HStack {
                         Text(MachineID.current)
                             .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                            .textSelection(.enabled)
                             .foregroundColor(.primary)
                         
                         Spacer()

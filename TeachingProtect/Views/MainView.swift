@@ -25,7 +25,7 @@ struct MainView: View {
                         HStack(spacing: 16) {
                             ZStack {
                                 Circle()
-                                    .fill(LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                    .fill(LinearGradient(colors: [.blue, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
                                     .frame(width: 36, height: 36)
                                 Image(systemName: "play.rectangle.fill")
                                     .foregroundColor(.white)
