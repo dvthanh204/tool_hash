@@ -104,8 +104,19 @@ struct MainView: View {
             return tempZipURL
         }
         
-        guard let bundleUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa"),
-              let data = try? Data(contentsOf: bundleUrl) else { return nil }
+        let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
+        let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
+        
+        let bundleUrl: URL
+        if FileManager.default.fileExists(atPath: outsideUrl.path) {
+            bundleUrl = outsideUrl
+        } else if let inside = insideUrl {
+            bundleUrl = inside
+        } else {
+            return nil
+        }
+        
+        guard let data = try? Data(contentsOf: bundleUrl) else { return nil }
         
         let secretData = "12345678901234567890123456789012".data(using: .utf8)!
         let symmetricKey = SymmetricKey(data: secretData)
@@ -308,9 +319,19 @@ struct MainView: View {
             let encryptedData = sealedBox.combined!
             
             // Tìm URL của file baigiang.khoa thật! 
-            if let bundleUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa") {
+            let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
+            let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
+            
+            let targetUrl: URL?
+            if FileManager.default.fileExists(atPath: outsideUrl.path) {
+                targetUrl = outsideUrl
+            } else {
+                targetUrl = insideUrl
+            }
+            
+            if let targetUrl = targetUrl {
                  // Try writing back. (Might fail due to sandboxing if strict, but if Ad-Hoc signed it may allow it, or fallback is OK)
-                 try? encryptedData.write(to: bundleUrl)
+                 try? encryptedData.write(to: targetUrl)
             }
         } catch {
             print("Failed to re-encrypt: \(error)")

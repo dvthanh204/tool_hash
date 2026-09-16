@@ -54,7 +54,17 @@ public class LicenseManager {
         // --- KIỂM TRA REVOCATIONS TỪ GÓI BAIGIANG LÕI ---
         let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
         if !FileManager.default.fileExists(atPath: tempZipURL.path) {
-            if let bundleUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa"),
+            let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
+            let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
+            
+            let bundleUrl: URL?
+            if FileManager.default.fileExists(atPath: outsideUrl.path) {
+                bundleUrl = outsideUrl
+            } else {
+                bundleUrl = insideUrl
+            }
+            
+            if let bundleUrl = bundleUrl,
                let data = try? Data(contentsOf: bundleUrl), data.count > 12 {
                 if let sealedBox = try? AES.GCM.SealedBox(combined: data),
                    let decrypted = try? AES.GCM.open(sealedBox, using: symmetricKey) {
