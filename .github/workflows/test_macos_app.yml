@@ -1,4 +1,4 @@
-name: Test macOS App Compatibility
+name: Test for Mac Pro (Apple Silicon M-Series Architecture)
 
 on:
   push:
@@ -12,8 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # User requested to test specifically for macOS 13
-        os: [macos-13]
+        # macos-14 uses Apple Silicon (M-Series processors) which is the exact same architecture used in modern Mac Pros (M2 Ultra). 
+        # This runner will not get queued indefinitely.
+        os: [macos-14]
 
     steps:
     - uses: actions/checkout@v4
