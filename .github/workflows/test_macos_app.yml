@@ -1,4 +1,4 @@
-name: Test for Mac Pro (Apple Silicon M-Series Architecture)
+name: Test for MacBook Air (Apple Silicon & Intel)
 
 on:
   push:
@@ -12,9 +12,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-14 uses Apple Silicon (M-Series processors) which is the exact same architecture used in modern Mac Pros (M2 Ultra). 
-        # This runner will not get queued indefinitely.
-        os: [macos-14]
+        # MacBook Air comes in two modern architectures:
+        # 1. macos-13 tests older MacBook Airs (Intel chips)
+        # 2. macos-14 tests newer MacBook Airs (M1, M2, M3 chips)
+        os: [macos-13, macos-14]
 
     steps:
     - uses: actions/checkout@v4
