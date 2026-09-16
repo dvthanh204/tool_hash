@@ -199,8 +199,8 @@ struct MainView: View {
         if let relsData = try? String(contentsOfFile: relsPath, encoding: .utf8), !relsData.contains("customUI") {
             if let insertIdx = relsData.range(of: "</Relationships>", options: .backwards)?.lowerBound {
                 let relStr = "<Relationship Id=\"rIdCustomUI\" Type=\"http://schemas.microsoft.com/office/2007/relationships/ui/extensibility\" Target=\"customUI/customUI14.xml\"/>"
-                let newRels = relsData[..<insertIdx] + relStr + relsData[insertIdx...]
-                try? newRels.write(toFile: relsPath, atomically: true, encoding: .utf8)
+                let newRels = String(relsData[..<insertIdx]) + relStr + String(relsData[insertIdx...])
+                try? newRels.write(toFile: relsPath, atomically: true, encoding: String.Encoding.utf8)
             }
         }
         
