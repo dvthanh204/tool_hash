@@ -1,4 +1,4 @@
-name: Test for MacBook Air (Apple Silicon & Intel)
+name: Test for Mac NEO 2026 (Apple Silicon Architecture)
 
 on:
   push:
@@ -12,8 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # MacBook Air M-Series Architecture (Instant run, no queue)
-        # Represents Macbook Air M1/M2/M3
+        # Tests for modern Apple Silicon chips representing Mac NEO 2026
+        # Represents all M-Series devices (M4, M5, etc)
         os: [macos-14]
 
     steps:
