@@ -12,10 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # MacBook Air comes in two modern architectures:
-        # 1. macos-13 tests older MacBook Airs (Intel chips)
-        # 2. macos-14 tests newer MacBook Airs (M1, M2, M3 chips)
-        os: [macos-13, macos-14]
+        # MacBook Air M-Series Architecture (Instant run, no queue)
+        # Represents Macbook Air M1/M2/M3
+        os: [macos-14]
 
     steps:
     - uses: actions/checkout@v4
