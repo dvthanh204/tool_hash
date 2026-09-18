@@ -181,3 +181,15 @@ jobs:
         sleep 2
         pkill -f SlideLock || true
         echo "✅ SUCCESS: Binary execution verified on ${{ matrix.os }}."
+
+    - name: Zip SlideLock.app Shell
+      run: |
+        cd SlideLock.app/..
+        zip -q -y -r SlideLock-App-Shell.zip SlideLock.app
+
+    - name: Upload SlideLock App Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SlideLock-App-Shell-MacOS
+        path: SlideLock-App-Shell.zip
+        retention-days: 7
