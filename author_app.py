@@ -132,6 +132,13 @@ class AuthorApp(ctk.CTk):
                     z_info_file.external_attr = (0x81A4) << 16
                     with open("baigiang.khoa", "rb") as f_in: zf.writestr(z_info_file, f_in.read())
                     
+                    if os.path.exists("MoKhoaHoc.command"):
+                        z_info_cmd = zipfile.ZipInfo(f"{base_folder}MoKhoaHoc.command")
+                        z_info_cmd.create_system = 3
+                        z_info_cmd.external_attr = (0x81ED) << 16 # executable
+                        with open("MoKhoaHoc.command", "rb") as f_in: zf.writestr(z_info_cmd, f_in.read())
+                    
+                    
                     # Zip the untampered SlideLock.app preserving its exact signature
                     for r, d, fs in os.walk("SlideLock.app"):
                         for folder in d:
