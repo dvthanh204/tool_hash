@@ -73,11 +73,17 @@ struct MainView: View {
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                             
-                            Button("Chọn file baigiang.khoa") {
+                            Button(action: {
                                 selectCustomDataFile()
+                            }) {
+                                Text("Chọn file baigiang.khoa")
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 6)
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
+                            .buttonStyle(.plain)
                         }
                         .padding()
                     }
