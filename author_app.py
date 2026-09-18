@@ -161,7 +161,9 @@ class AuthorApp(ctk.CTk):
     def _generate_hmac_key(self, u):
         raw = f"{u}".encode('utf-8')
         sig = hmac.new(b"12345678901234567890123456789012", raw, hashlib.sha256).digest()
-        return base64.b64encode(sig).decode('utf-8')
+        num = int.from_bytes(sig[:8], byteorder='big')
+        code = str(num % 1000000000000).zfill(12)
+        return f"{code[:4]}-{code[4:8]}-{code[8:12]}"
 
     def init_t2(self):
         card = self.build_card(self.frames["tab2"], "Cấp Quyền Truy Cập", "Sinh khóa duy nhất cho 1 máy tính đích.")

@@ -11,9 +11,22 @@ public class LicenseManager {
         loadLicense()
     }
     
+    private func getPackageId() -> String {
+        let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
+        let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
+        if FileManager.default.fileExists(atPath: outsideUrl.path), let attrs = try? FileManager.default.attributesOfItem(atPath: outsideUrl.path), let size = attrs[.size] as? UInt64 {
+            return "\(size)"
+        }
+        if let insideUrl = insideUrl, let attrs = try? FileManager.default.attributesOfItem(atPath: insideUrl.path), let size = attrs[.size] as? UInt64 {
+            return "\(size)"
+        }
+        // Fallback for custom file selection logic.
+        return "default"
+    }
+
     public func loadLicense() {
-        // Hỗ trợ đọc Key lưu tự động từ UserDefaults để các lần sau vào thẳng không cần nhập
-        guard let keyBase64 = UserDefaults.standard.string(forKey: "com.teachingprotect.license") else {
+        let licenseKey = "com.teachingprotect.license.\(getPackageId())"
+        guard let keyBase64 = UserDefaults.standard.string(forKey: licenseKey) else {
             self.isActivated = false
             return
         }
@@ -27,7 +40,8 @@ public class LicenseManager {
     
     public func activate(withKey keyBase64: String) -> Bool {
         if validate(keyBase64: keyBase64) {
-             UserDefaults.standard.set(keyBase64, forKey: "com.teachingprotect.license")
+             let licenseKey = "com.teachingprotect.license.\(getPackageId())"
+             UserDefaults.standard.set(keyBase64, forKey: licenseKey)
              self.isActivated = true
              return true
         }
@@ -45,9 +59,19 @@ public class LicenseManager {
         
         let symmetricKey = SymmetricKey(data: secretData)
         let hmac = HMAC<SHA256>.authenticationCode(for: messageData, using: symmetricKey)
-        let expectedSignature = Data(hmac).base64EncodedString()
+        let sigData = Data(hmac)
         
-        if input != expectedSignature {
+        let first8 = sigData.prefix(8)
+        var num: UInt64 = 0
+        for byte in first8 {
+            num = (num << 8) | UInt64(byte)
+        }
+        let codeNum = num % 1000000000000
+        let codeStr = String(format: "%012llu", codeNum)
+        let formattedExpected = "\(codeStr.prefix(4))-\(codeStr.dropFirst(4).prefix(4))-\(codeStr.dropFirst(8).prefix(4))"
+        let cleanInput = input.replacingOccurrences(of: "-", with: "")
+        
+        if cleanInput != codeStr && input != formattedExpected {
             return false
         }
         
