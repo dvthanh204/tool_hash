@@ -101,8 +101,14 @@ class AuthorApp(ctk.CTk):
         if not p_pths or not p_pths[0]: return messagebox.showerror("Lỗi", "Chưa chọn file!")
         try:
             mz = io.BytesIO()
+            manifest = {}
             with zipfile.ZipFile(mz, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for p_pth in p_pths: zf.write(p_pth, os.path.basename(p_pth))
+                for idx, p_pth in enumerate(p_pths):
+                    orig_name = os.path.basename(p_pth)
+                    safe_name = f"lesson_{idx}.pptx"
+                    zf.write(p_pth, safe_name)
+                    manifest[safe_name] = orig_name
+                zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False).encode('utf-8'))
                 zf.write("revocations.json", "revocations.json") if os.path.exists("revocations.json") else zf.writestr("revocations.json", "{}")
             
             aesgcm = AESGCM(b"12345678901234567890123456789012")

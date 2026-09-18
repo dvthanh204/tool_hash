@@ -3,7 +3,12 @@ import Foundation
 import CryptoKit
 
 struct MainView: View {
-    @State private var lessons: [String] = []
+    struct LessonInfo: Hashable {
+        let safeName: String
+        let displayName: String
+    }
+    
+    @State private var lessons: [LessonInfo] = []
     @State private var isProcessing: Bool = false
     @State private var statusMessage: String = "Đang tải dữ liệu..."
     @State private var customDataURL: URL? = nil
@@ -34,7 +39,7 @@ struct MainView: View {
                             }
                             
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(lesson)
+                                Text(lesson.displayName)
                                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                                     .foregroundColor(.primary)
                                 Text("Bài giảng PowerPoint bảo mật")
@@ -188,7 +193,7 @@ struct MainView: View {
             let zipURL = try getDecryptedZipURL()
             let task = Process()
             task.launchPath = "/usr/bin/unzip"
-            task.arguments = ["-Z1", zipURL.path]
+            task.arguments = ["-p", zipURL.path, "manifest.json"]
             
             let pipe = Pipe()
             task.standardOutput = pipe
@@ -197,15 +202,38 @@ struct MainView: View {
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
             
-            guard let output = String(data: data, encoding: .utf8) else { 
-                self.lessons = []
-                self.statusMessage = "Chưa nhận diện được danh sách bài giảng."
-                return 
+            var loadedLessons: [LessonInfo] = []
+            
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                // Sắp xếp the key safeName e.g., lesson_0.pptx, lesson_1.pptx
+                let sortedKeys = json.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+                for safeName in sortedKeys {
+                    if let displayName = json[safeName] {
+                        loadedLessons.append(LessonInfo(safeName: safeName, displayName: displayName))
+                    }
+                }
+            } else {
+                // Fallback nếu manifest.json bị lỗi, đọc lại kiểu cũ unzip -Z1 (cho thẻ cũ chưa kịp tạo manifest)
+                let task2 = Process()
+                task2.launchPath = "/usr/bin/unzip"
+                task2.arguments = ["-Z1", zipURL.path]
+                
+                let pipe2 = Pipe()
+                task2.standardOutput = pipe2
+                task2.launch()
+                let data2 = pipe2.fileHandleForReading.readDataToEndOfFile()
+                task2.waitUntilExit()
+                
+                if let output = String(data: data2, encoding: .utf8) {
+                    let files = output.components(separatedBy: .newlines).filter { 
+                        $0.lowercased().hasSuffix(".pptx") || $0.lowercased().hasSuffix(".ppt") 
+                    }.sorted()
+                    loadedLessons = files.map { LessonInfo(safeName: $0, displayName: $0) }
+                }
             }
-            let files = output.components(separatedBy: .newlines).filter { 
-                 $0.lowercased().hasSuffix(".pptx") || $0.lowercased().hasSuffix(".ppt") 
-            }
-            self.lessons = files.sorted()
+            
+            self.lessons = loadedLessons
+            
             if self.lessons.isEmpty {
                 self.statusMessage = "Không có file bài giảng trong gói dữ liệu."
             } else {
@@ -217,7 +245,7 @@ struct MainView: View {
         }
     }
     
-    private func openLesson(_ name: String) {
+    private func openLesson(_ lesson: LessonInfo) {
         isProcessing = true
         statusMessage = "Đang trích xuất và mã hóa file, vui lòng chờ..."
         
@@ -226,24 +254,43 @@ struct MainView: View {
                 DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi xác thực dữ liệu nguồn." }
                 return
             }
-            let extractURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)
+            
+            // Xử lý extract theo safeName, nhưng khi open ra MacOS open thì dùng tên gốc cho đẹp!
+            let secureTemp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("TeachingProtectTemp")
+            try? FileManager.default.createDirectory(at: secureTemp, withIntermediateDirectories: true)
+            let extractURL = secureTemp.appendingPathComponent(lesson.displayName)
             
             // 1. Trích xuất đúng 1 file PPTX
             let task = Process()
             task.launchPath = "/usr/bin/unzip"
-            task.arguments = ["-o", zipURL.path, name, "-d", NSTemporaryDirectory()]
+            task.arguments = ["-p", zipURL.path, lesson.safeName]
+            let pipe = Pipe()
+            task.standardOutput = pipe
             task.launch()
+            let extractedData = pipe.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
+            
+            guard extractedData.count > 0 else {
+                DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi giải nén bài giảng." }
+                return
+            }
+            
+            do {
+                try extractedData.write(to: extractURL)
+            } catch {
+                DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi lưu cache tạm thời." }
+                return
+            }
             
             // 2. Chèn XML vô hiệu hóa giao diện Save As / Print / Copy
             self.injectDisableSaveAs(pptxPath: extractURL.path)
             
             DispatchQueue.main.async {
-                self.statusMessage = "Đang mở: \(name)... (Đã Khóa Bảo Mật)"
+                self.statusMessage = "Đang mở: \(lesson.displayName)... (Đã Khóa Bảo Mật)"
                 NSWorkspace.shared.open(extractURL)
                 
                 // 3. Chạy luồng quét bảo vệ
-                self.watchPowerPoint(tempPptxPath: extractURL, originalName: name)
+                self.watchPowerPoint(tempPptxPath: extractURL, originalName: lesson.safeName)
             }
         }
     }
@@ -364,10 +411,13 @@ struct MainView: View {
     private func saveAndCleanup(tempPptxPath: URL, originalName: String) {
         guard let tempZip = try? getDecryptedZipURL() else { return }
         
+        let renamedPptx = tempPptxPath.deletingLastPathComponent().appendingPathComponent(originalName)
+        try? FileManager.default.moveItem(at: tempPptxPath, to: renamedPptx)
+        
         // Update zip package with modified file
         let task = Process()
         task.launchPath = "/usr/bin/zip"
-        task.arguments = ["-q", "-j", tempZip.path, tempPptxPath.path] // Replace file inside zip
+        task.arguments = ["-q", "-j", tempZip.path, renamedPptx.path] // Replace file inside zip
         task.launch()
         task.waitUntilExit()
         
@@ -401,7 +451,8 @@ struct MainView: View {
             print("Failed to re-encrypt: \(error)")
         }
         
-        try? FileManager.default.removeItem(at: tempPptxPath)
+        try? FileManager.default.removeItem(at: renamedPptx)
+        try? FileManager.default.removeItem(at: tempPptxPath) // Just in case move failed
         
         DispatchQueue.main.async {
             self.statusMessage = "Đã lưu bản cập nhật bảo mật và đóng thành công."
