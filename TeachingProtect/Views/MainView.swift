@@ -5,7 +5,8 @@ import CryptoKit
 struct MainView: View {
     @State private var lessons: [String] = []
     @State private var isProcessing: Bool = false
-    @State private var statusMessage: String = "Select a lesson from the left sidebar to open it in PowerPoint."
+    @State private var statusMessage: String = "Đang tải dữ liệu..."
+    @State private var customDataURL: URL? = nil
     
     var body: some View {
         NavigationView {
@@ -64,6 +65,22 @@ struct MainView: View {
                         .padding(.horizontal, 8)
                     }
                     .listStyle(.plain)
+                    
+                    if lessons.isEmpty {
+                        VStack(spacing: 12) {
+                            Text("Chưa tải được dữ liệu bài giảng.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            
+                            Button("Chọn file baigiang.khoa") {
+                                selectCustomDataFile()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        }
+                        .padding()
+                    }
                 }
             }
             .frame(minWidth: 350)
@@ -79,12 +96,12 @@ struct MainView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.blue)
                     } else {
-                        Image(systemName: "app.dashed")
+                        Image(systemName: lessons.isEmpty ? "exclamationmark.triangle" : "app.dashed")
                             .font(.system(size: 50))
-                            .foregroundColor(.secondary.opacity(0.5))
+                            .foregroundColor(lessons.isEmpty ? .orange : .secondary.opacity(0.5))
                         Text(statusMessage)
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(lessons.isEmpty ? .red : .secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
                     }
@@ -94,11 +111,36 @@ struct MainView: View {
         }
         .navigationTitle("Khóa Học Từ Xa (SlideLock)")
         .onAppear {
-            self.lessons = extractLessons()
+            self.loadLessons()
         }
     }
     
-    private func getDecryptedZipURL() -> URL? {
+    enum AppError: Error, LocalizedError {
+        case fileNotFound
+        case decryptFailed
+        
+        var errorDescription: String? {
+            switch self {
+            case .fileNotFound: return "Không tìm thấy file baigiang.khoa ở cùng thư mục ứng dụng. Lỗi có thể do macOS Gatekeeper App Translocation. Hãy chuyển ứng dụng và thư mục dữ liệu ra Desktop, hoặc nhấn Nút 'Chọn file baigiang.khoa' ở cột trái."
+            case .decryptFailed: return "Không thể giải mã file dữ liệu. File có thể bị hỏng."
+            }
+        }
+    }
+    
+    private func selectCustomDataFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.data]
+        panel.message = "Chọn file baigiang.khoa"
+        if panel.runModal() == .OK, let url = panel.url {
+            self.customDataURL = url
+            self.loadLessons()
+        }
+    }
+    
+    private func getDecryptedZipURL() throws -> URL {
         let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
         if FileManager.default.fileExists(atPath: tempZipURL.path) {
             return tempZipURL
@@ -108,19 +150,21 @@ struct MainView: View {
         let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
         
         let bundleUrl: URL
-        if FileManager.default.fileExists(atPath: outsideUrl.path) {
+        if let custom = customDataURL {
+            bundleUrl = custom
+        } else if FileManager.default.fileExists(atPath: outsideUrl.path) {
             bundleUrl = outsideUrl
         } else if let inside = insideUrl {
             bundleUrl = inside
         } else {
-            return nil
+            throw AppError.fileNotFound
         }
         
-        guard let data = try? Data(contentsOf: bundleUrl) else { return nil }
+        guard let data = try? Data(contentsOf: bundleUrl) else { throw AppError.fileNotFound }
         
         let secretData = "12345678901234567890123456789012".data(using: .utf8)!
         let symmetricKey = SymmetricKey(data: secretData)
-        guard data.count > 12 else { return nil }
+        guard data.count > 12 else { throw AppError.decryptFailed }
         
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: data)
@@ -129,28 +173,42 @@ struct MainView: View {
             return tempZipURL
         } catch {
             print("Decrypt failed: \(error)")
-            return nil
+            throw AppError.decryptFailed
         }
     }
     
-    private func extractLessons() -> [String] {
-        guard let zipURL = getDecryptedZipURL() else { return [] }
-        let task = Process()
-        task.launchPath = "/usr/bin/unzip"
-        task.arguments = ["-Z1", zipURL.path]
-        
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.launch()
-        
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
-        let files = output.components(separatedBy: .newlines).filter { 
-             $0.lowercased().hasSuffix(".pptx") || $0.lowercased().hasSuffix(".ppt") 
+    private func loadLessons() {
+        do {
+            let zipURL = try getDecryptedZipURL()
+            let task = Process()
+            task.launchPath = "/usr/bin/unzip"
+            task.arguments = ["-Z1", zipURL.path]
+            
+            let pipe = Pipe()
+            task.standardOutput = pipe
+            task.launch()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+            
+            guard let output = String(data: data, encoding: .utf8) else { 
+                self.lessons = []
+                self.statusMessage = "Chưa nhận diện được danh sách bài giảng."
+                return 
+            }
+            let files = output.components(separatedBy: .newlines).filter { 
+                 $0.lowercased().hasSuffix(".pptx") || $0.lowercased().hasSuffix(".ppt") 
+            }
+            self.lessons = files.sorted()
+            if self.lessons.isEmpty {
+                self.statusMessage = "Không có file bài giảng trong gói dữ liệu."
+            } else {
+                self.statusMessage = "Vui lòng chọn một bài giảng bên danh sách để mở khóa."
+            }
+        } catch {
+            self.lessons = []
+            self.statusMessage = "\(error.localizedDescription)"
         }
-        return files.sorted()
     }
     
     private func openLesson(_ name: String) {
@@ -158,8 +216,8 @@ struct MainView: View {
         statusMessage = "Đang trích xuất và mã hóa file, vui lòng chờ..."
         
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let zipURL = self.getDecryptedZipURL() else {
-                DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi dữ liệu." }
+            guard let zipURL = try? self.getDecryptedZipURL() else {
+                DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi xác thực dữ liệu nguồn." }
                 return
             }
             let extractURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(name)
@@ -298,7 +356,7 @@ struct MainView: View {
     }
     
     private func saveAndCleanup(tempPptxPath: URL, originalName: String) {
-        guard let tempZip = getDecryptedZipURL() else { return }
+        guard let tempZip = try? getDecryptedZipURL() else { return }
         
         // Update zip package with modified file
         let task = Process()
