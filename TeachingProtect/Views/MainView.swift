@@ -255,9 +255,11 @@ struct MainView: View {
                 return
             }
             
-            // Xử lý extract theo safeName, nhưng khi open ra MacOS open thì dùng tên gốc cho đẹp!
-            let secureTemp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("TeachingProtectTemp")
+            // Xử lý extract theo safeName, dùng UUID để giấu đường dẫn và Set quyền execute-only (chống Finder mở)
+            let secureTemp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("TeachingProtectTemp").appendingPathComponent(UUID().uuidString)
             try? FileManager.default.createDirectory(at: secureTemp, withIntermediateDirectories: true)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o111], ofItemAtPath: secureTemp.path)
+            
             let extractURL = secureTemp.appendingPathComponent(lesson.displayName)
             
             // 1. Trích xuất đúng 1 file PPTX
@@ -287,7 +289,22 @@ struct MainView: View {
             
             DispatchQueue.main.async {
                 self.statusMessage = "Đang mở: \(lesson.displayName)... (Đã Khóa Bảo Mật)"
-                NSWorkspace.shared.open(extractURL)
+                
+                // Mở PPT ở Normal Mode bằng AppleScript và tạo tag để chặn Save As/Duplicate
+                let script = """
+                tell application "Microsoft PowerPoint"
+                    activate
+                    set thePres to open (POSIX file "\(extractURL.path)")
+                    try
+                        set value of document property "Category" of thePres to "SlideLockSecure"
+                    end try
+                end tell
+                """
+                if let scriptObj = NSAppleScript(source: script) {
+                    scriptObj.executeAndReturnError(nil)
+                } else {
+                    NSWorkspace.shared.open(extractURL)
+                }
                 
                 // 3. Chạy luồng quét bảo vệ
                 self.watchPowerPoint(tempPptxPath: extractURL, originalName: lesson.safeName)
@@ -393,15 +410,63 @@ struct MainView: View {
                 return
             }
             
-            // Loop while locked, aggressively protect clipboard
+            // Script phát hiện và tự tiêu hủy file nếu bị Save As hoặc Duplicate ra chỗ khác!
+            let appleScriptChecker = """
+            tell application "Microsoft PowerPoint"
+                set validPath to "\(tempPptxPath.path)"
+                try
+                    set allP to presentations
+                    repeat with p in allP
+                        try
+                            set cat to value of document property "Category" of p
+                            if cat is "SlideLockSecure" then
+                                set pPath to ""
+                                try
+                                    set pPath to POSIX path of ((full name of p) as string)
+                                end try
+                                
+                                if pPath is not validPath then
+                                    -- Phát hiện Save As hoặc Duplicate!
+                                    close p saving no
+                                    if pPath is not "" then
+                                        try
+                                            do shell script "rm -f " & quoted form of pPath
+                                        end try
+                                    end if
+                                end if
+                            end if
+                        end try
+                    end repeat
+                end try
+            end tell
+            """
+            
+            var loopIndex = 0
             while true {
-                DispatchQueue.main.async { NSPasteboard.general.clearContents() }
+                // Hủy bộ nhớ đệm (Clipboard) hoàn toàn
+                DispatchQueue.main.async { 
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString("", forType: .string)
+                }
+                
+                // Cứ 1 giây (10 vòng) kích hoạt AppleScript Quét tìm file Clone
+                if loopIndex % 10 == 0 {
+                    if let scriptObj = NSAppleScript(source: appleScriptChecker) {
+                        scriptObj.executeAndReturnError(nil)
+                    }
+                }
                 
                 if !FileManager.default.fileExists(atPath: lockFileURL.path) {
-                    // Lock file gone, PowerPoint closed!
+                    // Quét nốt 1 lần cuối ngay khi file chính vừa đóng/Save As
+                    if let scriptObj = NSAppleScript(source: appleScriptChecker) {
+                        scriptObj.executeAndReturnError(nil)
+                    }
                     break
                 }
+                
                 Thread.sleep(forTimeInterval: 0.1)
+                loopIndex += 1
             }
             
             self.saveAndCleanup(tempPptxPath: tempPptxPath, originalName: originalName)
