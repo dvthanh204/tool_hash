@@ -12,9 +12,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Tests for modern Apple Silicon chips representing Mac NEO 2026
-        # Represents all M-Series devices (M4, M5, etc)
-        os: [macos-14]
+        # Kiểm tra tính tương thích chéo trên nhiều thế hệ macOS và CPU
+        # macos-13: Đại diện cho dòng máy Intel
+        # macos-14, macos-15: Đại diện cho dòng Apple Silicon (M1, M2, M3...)
+        os: [macos-13, macos-14, macos-15]
 
     steps:
     - uses: actions/checkout@v4
