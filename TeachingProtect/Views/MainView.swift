@@ -258,7 +258,7 @@ struct MainView: View {
             // Xử lý extract theo safeName, dùng UUID để giấu đường dẫn và Set quyền execute-only (chống Finder mở)
             let secureTemp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("TeachingProtectTemp").appendingPathComponent(UUID().uuidString)
             try? FileManager.default.createDirectory(at: secureTemp, withIntermediateDirectories: true)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o111], ofItemAtPath: secureTemp.path)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o333], ofItemAtPath: secureTemp.path)
             
             let extractURL = secureTemp.appendingPathComponent(lesson.displayName)
             
