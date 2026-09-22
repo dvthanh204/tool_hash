@@ -191,6 +191,22 @@ struct MainView: View {
     private func loadLessons() {
         do {
             let zipURL = try getDecryptedZipURL()
+            
+            // Re-validate against the ban list to prevent App Translocation bypass!
+            let revTask = Process()
+            revTask.launchPath = "/usr/bin/unzip"
+            revTask.arguments = ["-p", zipURL.path, "revocations.json"]
+            let revPipe = Pipe()
+            revTask.standardOutput = revPipe
+            revTask.launch()
+            let revData = revPipe.fileHandleForReading.readDataToEndOfFile()
+            revTask.waitUntilExit()
+            if let revJson = try? JSONSerialization.jsonObject(with: revData) as? [String: Int], revJson[MachineID.current] != nil {
+                self.lessons = []
+                self.statusMessage = "Máy này đã bị cấm khỏi hệ thống học tập!"
+                return
+            }
+            
             let task = Process()
             task.launchPath = "/usr/bin/unzip"
             task.arguments = ["-p", zipURL.path, "manifest.json"]
@@ -412,6 +428,7 @@ struct MainView: View {
             
             // Script phát hiện và tự tiêu hủy file nếu bị Save As hoặc Duplicate ra chỗ khác!
             let appleScriptChecker = """
+            set outStr to ""
             tell application "Microsoft PowerPoint"
                 set validPath to "\(tempPptxPath.path)"
                 try
@@ -422,16 +439,21 @@ struct MainView: View {
                             if cat is "SlideLockSecure" then
                                 set pPath to ""
                                 try
-                                    set pPath to POSIX path of ((full name of p) as string)
+                                    set tmpName to (full name of p) as string
+                                    if tmpName starts with "/" then
+                                        set pPath to tmpName
+                                    else if tmpName starts with "~" then
+                                        set pPath to tmpName
+                                    else
+                                        set pPath to POSIX path of tmpName
+                                    end if
                                 end try
                                 
                                 if pPath is not validPath then
                                     -- Phát hiện Save As hoặc Duplicate!
                                     close p saving no
                                     if pPath is not "" then
-                                        try
-                                            do shell script "rm -f " & quoted form of pPath
-                                        end try
+                                        set outStr to outStr & pPath & "|"
                                     end if
                                 end if
                             end if
@@ -439,6 +461,7 @@ struct MainView: View {
                     end repeat
                 end try
             end tell
+            return outStr
             """
             
             var loopIndex = 0
@@ -453,14 +476,32 @@ struct MainView: View {
                 // Cứ 1 giây (10 vòng) kích hoạt AppleScript Quét tìm file Clone
                 if loopIndex % 10 == 0 {
                     if let scriptObj = NSAppleScript(source: appleScriptChecker) {
-                        scriptObj.executeAndReturnError(nil)
+                        var errorInfo: NSDictionary?
+                        if let output = scriptObj.executeAndReturnError(&errorInfo).stringValue, !output.isEmpty {
+                            let badPaths = output.split(separator: "|")
+                            for badPath in badPaths {
+                                let pathStr = String(badPath).trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !pathStr.isEmpty && pathStr != tempPptxPath.path {
+                                    try? FileManager.default.removeItem(atPath: pathStr)
+                                }
+                            }
+                        }
                     }
                 }
                 
                 if !FileManager.default.fileExists(atPath: lockFileURL.path) {
                     // Quét nốt 1 lần cuối ngay khi file chính vừa đóng/Save As
                     if let scriptObj = NSAppleScript(source: appleScriptChecker) {
-                        scriptObj.executeAndReturnError(nil)
+                        var errorInfo: NSDictionary?
+                        if let output = scriptObj.executeAndReturnError(&errorInfo).stringValue, !output.isEmpty {
+                            let badPaths = output.split(separator: "|")
+                            for badPath in badPaths {
+                                let pathStr = String(badPath).trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !pathStr.isEmpty && pathStr != tempPptxPath.path {
+                                    try? FileManager.default.removeItem(atPath: pathStr)
+                                }
+                            }
+                        }
                     }
                     break
                 }
