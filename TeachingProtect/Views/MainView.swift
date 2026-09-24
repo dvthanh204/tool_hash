@@ -354,6 +354,7 @@ struct MainView: View {
         
         let customXml = """
         <customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+            <!-- SlideLockSecureSignature -->
             <commands>
                 <command idMso="FileSaveAs" enabled="false"/>
                 <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
@@ -427,43 +428,6 @@ struct MainView: View {
             }
             
             // Script phát hiện và tự tiêu hủy file nếu bị Save As hoặc Duplicate ra chỗ khác!
-            let appleScriptChecker = """
-            set outStr to ""
-            tell application "Microsoft PowerPoint"
-                set validPath to "\(tempPptxPath.path)"
-                try
-                    set allP to presentations
-                    repeat with p in allP
-                        try
-                            set cat to value of document property "Category" of p
-                            if cat is "SlideLockSecure" then
-                                set pPath to ""
-                                try
-                                    set tmpName to (full name of p) as string
-                                    if tmpName starts with "/" then
-                                        set pPath to tmpName
-                                    else if tmpName starts with "~" then
-                                        set pPath to tmpName
-                                    else
-                                        set pPath to POSIX path of tmpName
-                                    end if
-                                end try
-                                
-                                if pPath is not validPath then
-                                    -- Phát hiện Save As hoặc Duplicate!
-                                    close p saving no
-                                    if pPath is not "" then
-                                        set outStr to outStr & pPath & "|"
-                                    end if
-                                end if
-                            end if
-                        end try
-                    end repeat
-                end try
-            end tell
-            return outStr
-            """
-            
             var loopIndex = 0
             while true {
                 // Hủy bộ nhớ đệm (Clipboard) hoàn toàn
@@ -475,36 +439,15 @@ struct MainView: View {
                 
                 // Cứ 1 giây (10 vòng) kích hoạt AppleScript Quét tìm file Clone
                 if loopIndex % 10 == 0 {
-                    if let scriptObj = NSAppleScript(source: appleScriptChecker) {
-                        var errorInfo: NSDictionary?
-                        if let output = scriptObj.executeAndReturnError(&errorInfo).stringValue, !output.isEmpty {
-                            let badPaths = output.split(separator: "|")
-                            for badPath in badPaths {
-                                let pathStr = String(badPath).trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !pathStr.isEmpty && pathStr != tempPptxPath.path {
-                                    try? FileManager.default.removeItem(atPath: pathStr)
-                                }
-                            }
-                        }
-                    }
+                    self.scanAndKillClones(tempPptxPath: tempPptxPath)
                 }
                 
                 if !FileManager.default.fileExists(atPath: lockFileURL.path) {
                     // Quét nốt 1 lần cuối ngay khi file chính vừa đóng/Save As
-                    if let scriptObj = NSAppleScript(source: appleScriptChecker) {
-                        var errorInfo: NSDictionary?
-                        if let output = scriptObj.executeAndReturnError(&errorInfo).stringValue, !output.isEmpty {
-                            let badPaths = output.split(separator: "|")
-                            for badPath in badPaths {
-                                let pathStr = String(badPath).trimmingCharacters(in: .whitespacesAndNewlines)
-                                if !pathStr.isEmpty && pathStr != tempPptxPath.path {
-                                    try? FileManager.default.removeItem(atPath: pathStr)
-                                }
-                            }
-                        }
-                    }
+                    self.scanAndKillClones(tempPptxPath: tempPptxPath)
                     break
                 }
+
                 
                 Thread.sleep(forTimeInterval: 0.1)
                 loopIndex += 1
@@ -563,6 +506,90 @@ struct MainView: View {
         DispatchQueue.main.async {
             self.statusMessage = "Đã lưu bản cập nhật bảo mật và đóng thành công."
             self.isProcessing = false
+        }
+    }
+    
+    private func scanAndKillClones(tempPptxPath: URL) {
+        let appleScriptGetAllPaths = """
+        set outStr to ""
+        tell application "Microsoft PowerPoint"
+            try
+                set allP to presentations
+                repeat with p in allP
+                    try
+                        set tmpName to (full name of p) as string
+                        if tmpName is not "" then
+                            set pPath to tmpName
+                            if tmpName starts with "/" or tmpName starts with "~" then
+                                set pPath to tmpName
+                            else
+                                try
+                                    set pPath to POSIX path of (tmpName as alias)
+                                end try
+                            end if
+                            set outStr to outStr & pPath & "|"
+                        end if
+                    end try
+                end repeat
+            end try
+        end tell
+        return outStr
+        """
+        
+        if let scriptObj = NSAppleScript(source: appleScriptGetAllPaths) {
+            var errorInfo: NSDictionary?
+            if let output = scriptObj.executeAndReturnError(&errorInfo).stringValue, !output.isEmpty {
+                let openPaths = output.split(separator: "|")
+                for pathSub in openPaths {
+                    let pathStr = String(pathSub).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !pathStr.isEmpty && pathStr != tempPptxPath.path && FileManager.default.fileExists(atPath: pathStr) {
+                        // Check if file is a locked copy containing our signature
+                        let checkTask = Process()
+                        checkTask.launchPath = "/usr/bin/unzip"
+                        checkTask.arguments = ["-p", pathStr, "customUI/customUI14.xml"]
+                        let checkPipe = Pipe()
+                        checkTask.standardOutput = checkPipe
+                        checkTask.launch()
+                        let checkData = checkPipe.fileHandleForReading.readDataToEndOfFile()
+                        
+                        // Xử lý timeout ngắn hoặc zip exit
+                        DispatchQueue.global().async {
+                            checkTask.waitUntilExit()
+                        }
+                        
+                        if let xmlStr = String(data: checkData, encoding: .utf8), xmlStr.contains("SlideLockSecureSignature") {
+                            // Close via AppleScript completely by path
+                            let closeScript = \"\"\"
+                            tell application "Microsoft PowerPoint"
+                                try
+                                    repeat with p in presentations
+                                        try
+                                            set tmpName to (full name of p) as string
+                                            set pPath to tmpName
+                                            if tmpName starts with "/" or tmpName starts with "~" then
+                                                set pPath to tmpName
+                                            else
+                                                try
+                                                    set pPath to POSIX path of (tmpName as alias)
+                                                end try
+                                            end if
+                                            
+                                            if pPath is "\(pathStr)" then
+                                                close p saving no
+                                            end if
+                                        end try
+                                    end repeat
+                                end try
+                            end tell
+                            \"\"\"
+                            NSAppleScript(source: closeScript)?.executeAndReturnError(nil)
+                            
+                            // Delete illegal clone
+                            try? FileManager.default.removeItem(atPath: pathStr)
+                        }
+                    }
+                }
+            }
         }
     }
 }
