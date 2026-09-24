@@ -559,7 +559,7 @@ struct MainView: View {
                         
                         if let xmlStr = String(data: checkData, encoding: .utf8), xmlStr.contains("SlideLockSecureSignature") {
                             // Close via AppleScript completely by path
-                            let closeScript = \"\"\"
+                            let closeScript = """
                             tell application "Microsoft PowerPoint"
                                 try
                                     repeat with p in presentations
@@ -581,7 +581,7 @@ struct MainView: View {
                                     end repeat
                                 end try
                             end tell
-                            \"\"\"
+                            """
                             NSAppleScript(source: closeScript)?.executeAndReturnError(nil)
                             
                             // Delete illegal clone
