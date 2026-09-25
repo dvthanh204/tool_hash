@@ -558,8 +558,12 @@ struct MainView: View {
                             if tmpName is "" then
                                 set shouldKill to true
                             else
-                                -- Always use direct POSIX path conversion, works instantly without disk block
-                                set pPath to POSIX path of tmpName
+                                set pPath to tmpName
+                                if not (tmpName starts with "/" or tmpName starts with "~") then
+                                    try
+                                        set pPath to POSIX path of tmpName
+                                    end try
+                                end if
                                 
                                 if pPath is not "\(tempPptxPath.path)" then
                                     set shouldKill to true
