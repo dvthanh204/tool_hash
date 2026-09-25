@@ -558,12 +558,8 @@ struct MainView: View {
                             if tmpName is "" then
                                 set shouldKill to true
                             else
-                                set pPath to tmpName
-                                if not (tmpName starts with "/" or tmpName starts with "~") then
-                                    try
-                                        set pPath to POSIX path of (tmpName as alias)
-                                    end try
-                                end if
+                                -- Always use direct POSIX path conversion, works instantly without disk block
+                                set pPath to POSIX path of tmpName
                                 
                                 if pPath is not "\(tempPptxPath.path)" then
                                     set shouldKill to true
@@ -578,7 +574,7 @@ struct MainView: View {
                         if shouldKill then
                             close p saving no
                             try
-                                if tmpName is not "" then
+                                if pPath is not "" then
                                     do shell script "rm -f " & quoted form of pPath
                                 end if
                             end try
