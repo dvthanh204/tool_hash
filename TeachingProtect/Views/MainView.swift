@@ -317,7 +317,17 @@ struct MainView: View {
                 end tell
                 """
                 if let scriptObj = NSAppleScript(source: script) {
-                    scriptObj.executeAndReturnError(nil)
+                    var errorInfo: NSDictionary?
+                    scriptObj.executeAndReturnError(&errorInfo)
+                    if errorInfo != nil {
+                        if let pptUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.Powerpoint") {
+                            let config = NSWorkspace.OpenConfiguration()
+                            config.activates = true
+                            NSWorkspace.shared.open([extractURL], withApplicationAt: pptUrl, configuration: config, completionHandler: nil)
+                        } else {
+                            NSWorkspace.shared.open(extractURL)
+                        }
+                    }
                 } else {
                     NSWorkspace.shared.open(extractURL)
                 }
@@ -373,6 +383,11 @@ struct MainView: View {
                 <command idMso="FilePrint" enabled="false"/>
                 <command idMso="FilePrintQuick" enabled="false"/>
                 <command idMso="PrintPreviewAndPrint" enabled="false"/>
+                <command idMso="PictureSaveAs" enabled="false"/>
+                <command idMso="SaveMediaAs" enabled="false"/>
+                <command idMso="FileSaveAsMac" enabled="false"/>
+                <command idMso="FilePrintMac" enabled="false"/>
+                <command idMso="Export" enabled="false"/>
                 <command idMso="Copy" enabled="false"/>
                 <command idMso="Cut" enabled="false"/>
                 <command idMso="SlideCopy" enabled="false"/>
@@ -407,29 +422,45 @@ struct MainView: View {
     
     private func watchPowerPoint(tempPptxPath: URL, originalName: String) {
         DispatchQueue.global(qos: .background).async {
-            // Mac lock: File ~$name.pptx is created when PowerPoint edits a file natively
-            let dir = tempPptxPath.deletingLastPathComponent()
-            let lockFileName = "~$" + tempPptxPath.lastPathComponent
-            let lockFileURL = dir.appendingPathComponent(lockFileName)
-            
-            // Wait max 30s for lock file to appear
-            var isLocked = false
+            // Check if PowerPoint actually opened the file via AppleScript
+            var isOpened = false
             for _ in 0..<300 {
-                if FileManager.default.fileExists(atPath: lockFileURL.path) {
-                    isLocked = true
+                let checkOpenScript = """
+                tell application "Microsoft PowerPoint"
+                    set isOpen to false
+                    try
+                        repeat with p in presentations
+                            set isMatch to false
+                            try
+                                set catVal to value of document property "Category" of p
+                                if catVal is "SlideLockSecure" then
+                                    set isMatch to true
+                                end if
+                            end try
+                            if isMatch then
+                                set isOpen to true
+                            end if
+                        end repeat
+                    end try
+                    return isOpen
+                end tell
+                """
+                if let output = NSAppleScript(source: checkOpenScript)?.executeAndReturnError(nil).stringValue, output == "true" {
+                    isOpened = true
                     break
                 }
                 Thread.sleep(forTimeInterval: 0.1)
             }
             
-            if !isLocked {
+            if !isOpened {
                 self.saveAndCleanup(tempPptxPath: tempPptxPath, originalName: originalName)
                 return
             }
             
-            // Script phát hiện và tự tiêu hủy file nếu bị Save As hoặc Duplicate ra chỗ khác!
+            // Loop until ALL SlideLockSecure presentations are closed legitimately
             var loopIndex = 0
-            while true {
+            var stillOpen = true
+            while stillOpen {
                 // Hủy bộ nhớ đệm (Clipboard) hoàn toàn
                 DispatchQueue.main.async { 
                     let pb = NSPasteboard.general
@@ -437,17 +468,14 @@ struct MainView: View {
                     pb.setString("", forType: .string)
                 }
                 
-                // Cứ 1 giây (10 vòng) kích hoạt AppleScript Quét tìm file Clone
+                // Cứ 1 giây (10 vòng) kích hoạt AppleScript Quét tìm file Clone và báo xem bản chính còn mở không
                 if loopIndex % 10 == 0 {
-                    self.scanAndKillClones(tempPptxPath: tempPptxPath)
+                    stillOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath)
                 }
                 
-                if !FileManager.default.fileExists(atPath: lockFileURL.path) {
-                    // Quét nốt 1 lần cuối ngay khi file chính vừa đóng/Save As
-                    self.scanAndKillClones(tempPptxPath: tempPptxPath)
+                if !stillOpen {
                     break
                 }
-
                 
                 Thread.sleep(forTimeInterval: 0.1)
                 loopIndex += 1
@@ -509,87 +537,62 @@ struct MainView: View {
         }
     }
     
-    private func scanAndKillClones(tempPptxPath: URL) {
-        let appleScriptGetAllPaths = """
-        set outStr to ""
+    private func scanAndKillClones(tempPptxPath: URL) -> Bool {
+        let protectScript = """
         tell application "Microsoft PowerPoint"
+            set originalOpen to false
             try
-                set allP to presentations
-                repeat with p in allP
+                repeat with p in presentations
+                    set isClone to false
                     try
-                        set tmpName to (full name of p) as string
-                        if tmpName is not "" then
-                            set pPath to tmpName
-                            if tmpName starts with "/" or tmpName starts with "~" then
-                                set pPath to tmpName
-                            else
-                                try
-                                    set pPath to POSIX path of (tmpName as alias)
-                                end try
-                            end if
-                            set outStr to outStr & pPath & "|"
+                        set theCategory to value of document property "Category" of p
+                        if theCategory is "SlideLockSecure" then
+                            set isClone to true
                         end if
                     end try
+                    
+                    if isClone then
+                        set shouldKill to false
+                        try
+                            set tmpName to (full name of p) as string
+                            if tmpName is "" then
+                                set shouldKill to true
+                            else
+                                set pPath to tmpName
+                                if not (tmpName starts with "/" or tmpName starts with "~") then
+                                    try
+                                        set pPath to POSIX path of (tmpName as alias)
+                                    end try
+                                end if
+                                
+                                if pPath is not "\(tempPptxPath.path)" then
+                                    set shouldKill to true
+                                else
+                                    set originalOpen to true
+                                end if
+                            end if
+                        on error
+                             set shouldKill to true
+                        end try
+                        
+                        if shouldKill then
+                            close p saving no
+                            try
+                                if tmpName is not "" then
+                                    do shell script "rm -f " & quoted form of pPath
+                                end if
+                            end try
+                        end if
+                    end if
                 end repeat
             end try
+            return originalOpen
         end tell
-        return outStr
         """
         
-        if let scriptObj = NSAppleScript(source: appleScriptGetAllPaths) {
-            var errorInfo: NSDictionary?
-            if let output = scriptObj.executeAndReturnError(&errorInfo).stringValue, !output.isEmpty {
-                let openPaths = output.split(separator: "|")
-                for pathSub in openPaths {
-                    let pathStr = String(pathSub).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !pathStr.isEmpty && pathStr != tempPptxPath.path && FileManager.default.fileExists(atPath: pathStr) {
-                        // Check if file is a locked copy containing our signature
-                        let checkTask = Process()
-                        checkTask.launchPath = "/usr/bin/unzip"
-                        checkTask.arguments = ["-p", pathStr, "customUI/customUI14.xml"]
-                        let checkPipe = Pipe()
-                        checkTask.standardOutput = checkPipe
-                        checkTask.launch()
-                        let checkData = checkPipe.fileHandleForReading.readDataToEndOfFile()
-                        
-                        // Xử lý timeout ngắn hoặc zip exit
-                        DispatchQueue.global().async {
-                            checkTask.waitUntilExit()
-                        }
-                        
-                        if let xmlStr = String(data: checkData, encoding: .utf8), xmlStr.contains("SlideLockSecureSignature") {
-                            // Close via AppleScript completely by path
-                            let closeScript = """
-                            tell application "Microsoft PowerPoint"
-                                try
-                                    repeat with p in presentations
-                                        try
-                                            set tmpName to (full name of p) as string
-                                            set pPath to tmpName
-                                            if tmpName starts with "/" or tmpName starts with "~" then
-                                                set pPath to tmpName
-                                            else
-                                                try
-                                                    set pPath to POSIX path of (tmpName as alias)
-                                                end try
-                                            end if
-                                            
-                                            if pPath is "\(pathStr)" then
-                                                close p saving no
-                                            end if
-                                        end try
-                                    end repeat
-                                end try
-                            end tell
-                            """
-                            NSAppleScript(source: closeScript)?.executeAndReturnError(nil)
-                            
-                            // Delete illegal clone
-                            try? FileManager.default.removeItem(atPath: pathStr)
-                        }
-                    }
-                }
-            }
+        if let output = NSAppleScript(source: protectScript)?.executeAndReturnError(nil).stringValue {
+            return output == "true"
         }
+        return false // If error executing, safely assume closed
     }
 }
