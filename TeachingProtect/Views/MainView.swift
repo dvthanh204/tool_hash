@@ -468,6 +468,11 @@ struct MainView: View {
                     pb.setString("", forType: .string)
                 }
                 
+                // Chặn cửa sổ Save As / Print (chạy mỗi 0.4s)
+                if loopIndex % 4 == 0 {
+                    self.closeIllegalWindows()
+                }
+                
                 // Cứ 1 giây (10 vòng) kích hoạt AppleScript Quét tìm file Clone và báo xem bản chính còn mở không
                 if loopIndex % 10 == 0 {
                     stillOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath)
@@ -534,6 +539,40 @@ struct MainView: View {
         DispatchQueue.main.async {
             self.statusMessage = "Đã lưu bản cập nhật bảo mật và đóng thành công."
             self.isProcessing = false
+        }
+    }
+    
+    private func closeIllegalWindows() {
+        let script = """
+        try
+            tell application "System Events"
+                set frontApp to first application process whose frontmost is true
+                set appName to name of frontApp
+                if appName contains "PowerPoint" or appName contains "WPS" then
+                    set winName to name of front window of frontApp
+                    if winName is not missing value then
+                        set shouldClose to false
+                        if winName contains "Save As" then set shouldClose to true
+                        if winName contains "Lưu dưới dạng" then set shouldClose to true
+                        if winName contains "Lưu bản sao" then set shouldClose to true
+                        if winName contains "Save a Copy" then set shouldClose to true
+                        if winName is "Print" then set shouldClose to true
+                        if winName is "In" then set shouldClose to true
+                        if winName contains "Export" or winName contains "Xuất" then set shouldClose to true
+                        
+                        if shouldClose then
+                            key code 53 -- Esc
+                            delay 0.1
+                            key code 53 -- Esc
+                            keystroke "w" using command down -- Cmd+W
+                        end if
+                    end if
+                end if
+            end tell
+        end try
+        """
+        if let scriptObj = NSAppleScript(source: script) {
+            scriptObj.executeAndReturnError(nil)
         }
     }
     

@@ -76,6 +76,67 @@ class AuthorApp(ctk.CTk):
         ctk.CTkLabel(card, text=desc, font=ctk.CTkFont(family="Inter", size=14), text_color="#71717A").pack(pady=(0, 30), anchor="center")
         return card
 
+    def protect_pptx(self, input_path):
+        import io
+        out_buf = io.BytesIO()
+        has_custom_ui = False
+        try:
+            with zipfile.ZipFile(input_path, 'r') as zin:
+                with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED) as zout:
+                    rels_data = None
+                    for item in zin.infolist():
+                        if item.filename == '_rels/.rels':
+                            rels_data = zin.read(item.filename)
+                        elif 'customUI' in item.filename:
+                            has_custom_ui = True
+                            zout.writestr(item, zin.read(item.filename))
+                        else:
+                            zout.writestr(item, zin.read(item.filename))
+                    
+                    if not has_custom_ui and rels_data:
+                        rels_str = rels_data.decode('utf-8')
+                        if '<Relationships' in rels_str:
+                            rel_tag1 = '<Relationship Id="rIdCustomUI" Type="http://schemas.microsoft.com/office/2006/relationships/ui/extensibility" Target="customUI/customUI.xml"/>'
+                            rel_tag2 = '<Relationship Id="rIdCustomUI14" Type="http://schemas.microsoft.com/office/2007/relationships/ui/extensibility" Target="customUI/customUI14.xml"/>'
+                            rels_str = rels_str.replace('</Relationships>', rel_tag1 + rel_tag2 + '</Relationships>')
+                            zout.writestr('_rels/.rels', rels_str.encode('utf-8'))
+                            
+                            custom_ui_2007 = b'''<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
+  <commands>
+    <command idMso="FileSave" enabled="false"/>
+    <command idMso="FileSaveAs" enabled="false"/>
+    <command idMso="FileSaveAsMenu" enabled="false"/>
+    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+    <command idMso="ApplicationOptionsDialog" enabled="false"/>
+    <command idMso="Export" enabled="false"/>
+    <command idMso="Share" enabled="false"/>
+  </commands>
+</customUI>'''
+
+                            custom_ui_2010 = b'''<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+  <commands>
+    <command idMso="FileSave" enabled="false"/>
+    <command idMso="FileSaveAs" enabled="false"/>
+    <command idMso="FileSaveAsMenu" enabled="false"/>
+    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+    <command idMso="ApplicationOptionsDialog" enabled="false"/>
+    <command idMso="Export" enabled="false"/>
+    <command idMso="Share" enabled="false"/>
+  </commands>
+</customUI>'''
+                            zout.writestr('customUI/customUI.xml', custom_ui_2007)
+                            zout.writestr('customUI/customUI14.xml', custom_ui_2010)
+                        else:
+                            zout.writestr('_rels/.rels', rels_data)
+                    elif rels_data:
+                        zout.writestr('_rels/.rels', rels_data)
+        except Exception as e:
+            # Fallback to original file content on error
+            with open(input_path, 'rb') as f:
+                return f.read()
+            
+        return out_buf.getvalue()
+
     def init_t1(self):
         card = self.build_card(self.frames["tab1"], "Bọc Thép Bài Giảng", "Đóng gói an toàn các tệp PowerPoint trước khi gửi cho học viên Mac.")
         self.filepath_var = ctk.StringVar()
@@ -106,7 +167,11 @@ class AuthorApp(ctk.CTk):
                 for idx, p_pth in enumerate(p_pths):
                     orig_name = os.path.basename(p_pth)
                     safe_name = f"lesson_{idx}.pptx"
-                    zf.write(p_pth, safe_name)
+                    
+                    # Inject customUI XML to disable Save As
+                    protected_data = self.protect_pptx(p_pth)
+                    zf.writestr(safe_name, protected_data)
+                    
                     manifest[safe_name] = orig_name
                 zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False).encode('utf-8'))
                 zf.write("revocations.json", "revocations.json") if os.path.exists("revocations.json") else zf.writestr("revocations.json", "{}")
