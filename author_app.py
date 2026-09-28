@@ -85,8 +85,23 @@ class AuthorApp(ctk.CTk):
                 with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED) as zout:
                     rels_data = None
                     for item in zin.infolist():
+                        # Bỏ qua các file fonts nhúng để tránh cảnh báo Font trên Mac
+                        if item.filename.startswith('ppt/fonts/'):
+                            continue
+                            
                         if item.filename == '_rels/.rels':
                             rels_data = zin.read(item.filename)
+                        elif item.filename == 'ppt/presentation.xml':
+                            p_data = zin.read(item.filename).decode('utf-8')
+                            import re
+                            p_data = re.sub(r'<p:embeddedFontLst>.*?</p:embeddedFontLst>', '', p_data, flags=re.DOTALL)
+                            p_data = re.sub(r'<p:embeddedFontLst\b[^>]*/>', '', p_data)
+                            zout.writestr(item, p_data.encode('utf-8'))
+                        elif item.filename == 'ppt/_rels/presentation.xml.rels':
+                            import re
+                            rels_str = zin.read(item.filename).decode('utf-8')
+                            rels_str = re.sub(r'<Relationship[^>]*relationships/font[^>]*/>', '', rels_str)
+                            zout.writestr(item, rels_str.encode('utf-8'))
                         elif 'customUI' in item.filename:
                             has_custom_ui = True
                             zout.writestr(item, zin.read(item.filename))
@@ -103,26 +118,68 @@ class AuthorApp(ctk.CTk):
                             
                             custom_ui_2007 = b'''<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
   <commands>
-    <command idMso="FileSave" enabled="false"/>
     <command idMso="FileSaveAs" enabled="false"/>
     <command idMso="FileSaveAsMenu" enabled="false"/>
     <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
     <command idMso="ApplicationOptionsDialog" enabled="false"/>
     <command idMso="Export" enabled="false"/>
     <command idMso="Share" enabled="false"/>
+    <command idMso="FileSaveAsPicture" enabled="false"/>
+    <command idMso="FileSaveACopy" enabled="false"/>
+    <command idMso="FileExport" enabled="false"/>
+    <command idMso="FileExportAsPdf" enabled="false"/>
+    <command idMso="PublishToPdfOrXps" enabled="false"/>
+    <command idMso="CreateVideo" enabled="false"/>
+    <command idMso="FileExportToVideo" enabled="false"/>
+    <command idMso="PackageForCd" enabled="false"/>
+    <command idMso="CreateHandouts" enabled="false"/>
+    <command idMso="ShareDocument" enabled="false"/>
+    <command idMso="FileSendAsAttachment" enabled="false"/>
+    <command idMso="FileSendAsPdf" enabled="false"/>
+    <command idMso="FilePrint" enabled="false"/>
+    <command idMso="FilePrintQuick" enabled="false"/>
+    <command idMso="PrintPreviewAndPrint" enabled="false"/>
+    <command idMso="PictureSaveAs" enabled="false"/>
+    <command idMso="SaveMediaAs" enabled="false"/>
   </commands>
 </customUI>'''
 
                             custom_ui_2010 = b'''<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
   <commands>
-    <command idMso="FileSave" enabled="false"/>
     <command idMso="FileSaveAs" enabled="false"/>
     <command idMso="FileSaveAsMenu" enabled="false"/>
     <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
     <command idMso="ApplicationOptionsDialog" enabled="false"/>
     <command idMso="Export" enabled="false"/>
     <command idMso="Share" enabled="false"/>
+    <command idMso="FileSaveAsPicture" enabled="false"/>
+    <command idMso="FileSaveACopy" enabled="false"/>
+    <command idMso="FileExport" enabled="false"/>
+    <command idMso="FileExportAsPdf" enabled="false"/>
+    <command idMso="PublishToPdfOrXps" enabled="false"/>
+    <command idMso="CreateVideo" enabled="false"/>
+    <command idMso="FileExportToVideo" enabled="false"/>
+    <command idMso="PackageForCd" enabled="false"/>
+    <command idMso="CreateHandouts" enabled="false"/>
+    <command idMso="ShareDocument" enabled="false"/>
+    <command idMso="FileSendAsAttachment" enabled="false"/>
+    <command idMso="FileSendAsPdf" enabled="false"/>
+    <command idMso="FilePrint" enabled="false"/>
+    <command idMso="FilePrintQuick" enabled="false"/>
+    <command idMso="PrintPreviewAndPrint" enabled="false"/>
+    <command idMso="PictureSaveAs" enabled="false"/>
+    <command idMso="SaveMediaAs" enabled="false"/>
   </commands>
+  <ribbon>
+    <backstage>
+        <tab idMso="TabSave" visible="false"/>
+        <button idMso="FileSaveAs" visible="false"/>
+        <tab idMso="TabPrint" visible="false"/>
+        <tab idMso="TabExport" visible="false"/>
+        <tab idMso="TabShare" visible="false"/>
+        <tab idMso="TabPublish" visible="false"/>
+    </backstage>
+  </ribbon>
 </customUI>'''
                             zout.writestr('customUI/customUI.xml', custom_ui_2007)
                             zout.writestr('customUI/customUI14.xml', custom_ui_2010)

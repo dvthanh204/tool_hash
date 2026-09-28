@@ -408,6 +408,22 @@ struct MainView: View {
         """
         try? customXml.write(toFile: customUiDir + "/customUI14.xml", atomically: true, encoding: .utf8)
         
+        // --- Xóa font nhúng để bỏ qua hộp thoại cảnh báo Font của Mac ---
+        try? FileManager.default.removeItem(atPath: tempDir + "/ppt/fonts")
+        
+        let pRelsPath = tempDir + "/ppt/_rels/presentation.xml.rels"
+        if let pRelsData = try? String(contentsOfFile: pRelsPath, encoding: .utf8) {
+            let strippedPRels = pRelsData.replacingOccurrences(of: "<Relationship[^>]*relationships/font[^>]*/>", with: "", options: .regularExpression)
+            try? strippedPRels.write(toFile: pRelsPath, atomically: true, encoding: .utf8)
+        }
+        
+        let pXmlPath = tempDir + "/ppt/presentation.xml"
+        if let pXmlData = try? String(contentsOfFile: pXmlPath, encoding: .utf8) {
+            var strippedPXml = pXmlData.replacingOccurrences(of: "<p:embeddedFontLst>.*?</p:embeddedFontLst>", with: "", options: [.regularExpression, .caseInsensitive])
+            strippedPXml = strippedPXml.replacingOccurrences(of: "<p:embeddedFontLst[^>]*/>", with: "", options: [.regularExpression, .caseInsensitive])
+            try? strippedPXml.write(toFile: pXmlPath, atomically: true, encoding: .utf8)
+        }
+        
         // Nén lại
         let zip = Process()
         zip.launchPath = "/usr/bin/zip"
@@ -552,48 +568,30 @@ struct MainView: View {
                     set shouldClose to false
                     
                     try
-                        set winName to name of front window of frontApp
-                        if winName is not missing value then
-                            if winName is "Save" or winName is "Lưu" then set shouldClose to true
-                            if winName contains "Save As" or winName contains "Lưu dưới dạng" then set shouldClose to true
-                            if winName contains "Lưu bản sao" or winName contains "Save a Copy" then set shouldClose to true
-                            if winName contains "Save with Fonts" or winName contains "Phông chữ" then set shouldClose to true
-                            if winName is "Print" or winName is "In" then set shouldClose to true
-                            if winName contains "Export" or winName contains "Xuất" then set shouldClose to true
-                        end if
-                        if exists (button "Save" of front window of frontApp) then set shouldClose to true
-                        if exists (button "Lưu" of front window of frontApp) then set shouldClose to true
-                        if exists (button "Save As..." of front window of frontApp) then set shouldClose to true
-                        if exists (button "Save As" of front window of frontApp) then set shouldClose to true
-                    end try
-                    
-                    try
-                        if exists (sheet 1 of front window of frontApp) then
-                            set sheetName to name of sheet 1 of front window of frontApp
-                            if sheetName is not missing value then
-                                if sheetName is "Save" or sheetName is "Lưu" then set shouldClose to true
-                                if sheetName contains "Save As" or sheetName contains "Lưu dưới dạng" then set shouldClose to true
-                                if sheetName contains "Lưu bản sao" or sheetName contains "Save a Copy" then set shouldClose to true
-                                if sheetName contains "Save with Fonts" or sheetName contains "Phông chữ" then set shouldClose to true
-                                if sheetName is "Print" or sheetName is "In" then set shouldClose to true
-                                if sheetName contains "Export" or sheetName contains "Xuất" then set shouldClose to true
+                        if exists (front window of frontApp) then
+                            set winName to name of front window of frontApp
+                            if winName is not missing value then
+                                if winName is "Save" or winName is "Lưu" then set shouldClose to true
+                                if winName contains "Save As" or winName contains "Lưu dưới dạng" then set shouldClose to true
+                                if winName contains "Lưu bản sao" or winName contains "Save a Copy" then set shouldClose to true
+                                if winName contains "Save with Fonts" or winName contains "Phông chữ" then set shouldClose to true
+                                if winName is "Print" or winName is "In" then set shouldClose to true
+                                if winName contains "Export" or winName contains "Xuất" then set shouldClose to true
                             end if
-                            if exists (button "Save" of sheet 1 of front window of frontApp) then set shouldClose to true
-                            if exists (button "Lưu" of sheet 1 of front window of frontApp) then set shouldClose to true
-                            if exists (button "Save As..." of sheet 1 of front window of frontApp) then set shouldClose to true
-                            if exists (button "Save As" of sheet 1 of front window of frontApp) then set shouldClose to true
-                            if exists (button "Print" of sheet 1 of front window of frontApp) then set shouldClose to true
-                            if exists (button "In" of sheet 1 of front window of frontApp) then set shouldClose to true
+                            
+                            -- Khắc phục triệt để lỗi "vẫn lưu được file": 
+                            -- Ngăn chặn toàn bộ các Sheet nổi lên (Save Dialog, Export, Print, v.v đều là sheet)
+                            if exists (sheet 1 of front window of frontApp) then
+                                set shouldClose to true
+                            end if
                         end if
                     end try
                     
                     if shouldClose then
-                        key code 53 -- Esc
+                        key code 53 -- Esc để đóng Sheet/Dialog
                         delay 0.1
-                        key code 53 -- Esc
-                        keystroke "w" using command down -- Cmd+W
-                        delay 0.1
-                        key code 36 -- Return (in case of unsaved changes prompt)
+                        key code 53 -- Esc dự phòng
+                        -- KHÔNG đóng tắt luôn bài (Cmd+W) để người dùng còn học tiếp và tự save tay an toàn
                     end if
                 end if
             end tell
