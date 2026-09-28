@@ -549,23 +549,51 @@ struct MainView: View {
                 set frontApp to first application process whose frontmost is true
                 set appName to name of frontApp
                 if appName contains "PowerPoint" or appName contains "WPS" then
-                    set winName to name of front window of frontApp
-                    if winName is not missing value then
-                        set shouldClose to false
-                        if winName contains "Save As" then set shouldClose to true
-                        if winName contains "Lưu dưới dạng" then set shouldClose to true
-                        if winName contains "Lưu bản sao" then set shouldClose to true
-                        if winName contains "Save a Copy" then set shouldClose to true
-                        if winName is "Print" then set shouldClose to true
-                        if winName is "In" then set shouldClose to true
-                        if winName contains "Export" or winName contains "Xuất" then set shouldClose to true
-                        
-                        if shouldClose then
-                            key code 53 -- Esc
-                            delay 0.1
-                            key code 53 -- Esc
-                            keystroke "w" using command down -- Cmd+W
+                    set shouldClose to false
+                    
+                    try
+                        set winName to name of front window of frontApp
+                        if winName is not missing value then
+                            if winName is "Save" or winName is "Lưu" then set shouldClose to true
+                            if winName contains "Save As" or winName contains "Lưu dưới dạng" then set shouldClose to true
+                            if winName contains "Lưu bản sao" or winName contains "Save a Copy" then set shouldClose to true
+                            if winName contains "Save with Fonts" or winName contains "Phông chữ" then set shouldClose to true
+                            if winName is "Print" or winName is "In" then set shouldClose to true
+                            if winName contains "Export" or winName contains "Xuất" then set shouldClose to true
                         end if
+                        if exists (button "Save" of front window of frontApp) then set shouldClose to true
+                        if exists (button "Lưu" of front window of frontApp) then set shouldClose to true
+                        if exists (button "Save As..." of front window of frontApp) then set shouldClose to true
+                        if exists (button "Save As" of front window of frontApp) then set shouldClose to true
+                    end try
+                    
+                    try
+                        if exists (sheet 1 of front window of frontApp) then
+                            set sheetName to name of sheet 1 of front window of frontApp
+                            if sheetName is not missing value then
+                                if sheetName is "Save" or sheetName is "Lưu" then set shouldClose to true
+                                if sheetName contains "Save As" or sheetName contains "Lưu dưới dạng" then set shouldClose to true
+                                if sheetName contains "Lưu bản sao" or sheetName contains "Save a Copy" then set shouldClose to true
+                                if sheetName contains "Save with Fonts" or sheetName contains "Phông chữ" then set shouldClose to true
+                                if sheetName is "Print" or sheetName is "In" then set shouldClose to true
+                                if sheetName contains "Export" or sheetName contains "Xuất" then set shouldClose to true
+                            end if
+                            if exists (button "Save" of sheet 1 of front window of frontApp) then set shouldClose to true
+                            if exists (button "Lưu" of sheet 1 of front window of frontApp) then set shouldClose to true
+                            if exists (button "Save As..." of sheet 1 of front window of frontApp) then set shouldClose to true
+                            if exists (button "Save As" of sheet 1 of front window of frontApp) then set shouldClose to true
+                            if exists (button "Print" of sheet 1 of front window of frontApp) then set shouldClose to true
+                            if exists (button "In" of sheet 1 of front window of frontApp) then set shouldClose to true
+                        end if
+                    end try
+                    
+                    if shouldClose then
+                        key code 53 -- Esc
+                        delay 0.1
+                        key code 53 -- Esc
+                        keystroke "w" using command down -- Cmd+W
+                        delay 0.1
+                        key code 36 -- Return (in case of unsaved changes prompt)
                     end if
                 end if
             end tell
