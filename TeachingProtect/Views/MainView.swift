@@ -437,6 +437,7 @@ struct MainView: View {
     }
     
     private func watchPowerPoint(tempPptxPath: URL, originalName: String) {
+        PowerPointOverlayManager.shared.startMonitoring()
         DispatchQueue.global(qos: .background).async {
             // Check if PowerPoint actually opened the file via AppleScript
             var isOpened = false
@@ -507,6 +508,7 @@ struct MainView: View {
     }
     
     private func saveAndCleanup(tempPptxPath: URL, originalName: String) {
+        PowerPointOverlayManager.shared.stopMonitoring()
         guard let tempZip = try? getDecryptedZipURL() else { return }
         
         let renamedPptx = tempPptxPath.deletingLastPathComponent().appendingPathComponent(originalName)
@@ -659,5 +661,120 @@ struct MainView: View {
             return output == "true"
         }
         return false // If error executing, safely assume closed
+    }
+}
+
+class PowerPointOverlayManager {
+    static let shared = PowerPointOverlayManager()
+    
+    private var overlayWindow: NSWindow?
+    private var timer: Timer?
+    
+    // Khởi động lớp layout che
+    func startMonitoring() {
+        DispatchQueue.main.async {
+            self.createOverlay()
+            self.timer?.invalidate()
+            self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.updateOverlay()
+            }
+        }
+    }
+    
+    func stopMonitoring() {
+        DispatchQueue.main.async {
+            self.timer?.invalidate()
+            self.timer = nil
+            self.overlayWindow?.orderOut(nil)
+            self.overlayWindow = nil
+        }
+    }
+    
+    private func createOverlay() {
+        if self.overlayWindow != nil { return } // Tránh tạo nhiều lần
+        
+        let win = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
+        win.level = .floating // Nằm trên các cửa sổ thông thường
+        
+        let overlayView = NSView()
+        overlayView.wantsLayer = true
+        // Dùng lưới mờ hoặc màu xám nhẹ để không cản trở hoàn toàn tầm nhìn nhưng vẫn khóa click
+        overlayView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.01).cgColor
+        
+        // Cảnh báo
+        let warningText = NSTextField(labelWithString: "Bảo mật SlideLock: Thanh công cụ bị khóa")
+        warningText.textColor = NSColor.red.withAlphaComponent(0.4)
+        warningText.font = .systemFont(ofSize: 12, weight: .bold)
+        warningText.alignment = .center
+        overlayView.addSubview(warningText)
+        
+        warningText.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            warningText.centerXAnchor.constraint(equalTo: overlayView.centerXAnchor),
+            warningText.centerYAnchor.constraint(equalTo: overlayView.centerYAnchor)
+        ])
+        
+        win.contentView = overlayView
+        win.backgroundColor = .clear
+        win.isOpaque = false
+        win.hasShadow = false
+        // Quan trọng: Phải cho phép nhận sự kiện click chuột thì mới che được
+        win.ignoresMouseEvents = false
+        
+        self.overlayWindow = win
+    }
+    
+    private func updateOverlay() {
+        guard let win = self.overlayWindow else { return }
+        
+        let activeApp = NSWorkspace.shared.frontmostApplication
+        let isPowerPointActive = activeApp?.localizedName == "Microsoft PowerPoint" || activeApp?.bundleIdentifier?.contains("Powerpoint") == true
+        
+        if !isPowerPointActive {
+            if win.isVisible {
+                win.orderOut(nil)
+            }
+            return
+        }
+        
+        let options = CGWindowListOption(arrayLiteral: .excludeDesktopElements, .optionOnScreenOnly)
+        guard let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return }
+        
+        var foundPPT = false
+        
+        for info in windowInfoList {
+            if let ownerName = info[kCGWindowOwnerName as String] as? String,
+               ownerName.contains("PowerPoint"),
+               let bounds = info[kCGWindowBounds as String] as? [String: Any],
+               let x = bounds["X"] as? CGFloat,
+               let y = bounds["Y"] as? CGFloat,
+               let width = bounds["Width"] as? CGFloat,
+               let height = bounds["Height"] as? CGFloat,
+               width > 400 && height > 300 { // Lọc cửa sổ chính của Slide học.
+                
+                // CGWindowListOption trả về toạ độ Top-Left với x, y từ góc trên cùng của màn hình chính
+                // Phải đổi lại thành toạ độ của Cocoa (Bottom-Left)
+                let screenHeight = CGDisplayBounds(CGMainDisplayID()).height
+                let cocoaY = screenHeight - y - height
+                
+                // Che 150 pixel phía trên cho thanh Ribbon/Toolbar
+                let overlayHeight: CGFloat = 160
+                let rect = CGRect(x: x, y: cocoaY + height - overlayHeight, width: width, height: overlayHeight)
+                
+                if win.frame != rect {
+                    win.setFrame(rect, display: true)
+                }
+                
+                if !win.isVisible {
+                    win.orderFront(nil)
+                }
+                foundPPT = true
+                break // Chỉ gắn vô cửa sổ bự nhất hoặc đầu tiên 
+            }
+        }
+        
+        if !foundPPT && win.isVisible {
+            win.orderOut(nil)
+        }
     }
 }
