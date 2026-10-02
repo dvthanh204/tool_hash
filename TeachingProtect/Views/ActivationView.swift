@@ -48,7 +48,6 @@ struct ActivationView: View {
                                 .foregroundColor(.blue)
                         }
                         .buttonStyle(.plain)
-                        .help("Copy Machine ID")
                     }
                     .padding(16)
                     .background(Color(NSColor.controlBackgroundColor))

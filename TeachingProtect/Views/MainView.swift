@@ -101,8 +101,9 @@ struct MainView: View {
                 
                 VStack(spacing: 20) {
                     if isProcessing {
-                        ProgressView()
-                            .scaleEffect(1.5)
+                        Text("⏳")
+                            .font(.system(size: 32))
+                            .padding(.bottom, 10)
                         Text(statusMessage)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.blue)
@@ -120,7 +121,6 @@ struct MainView: View {
                 .frame(minWidth: 400, minHeight: 400)
             }
         }
-        .navigationTitle("Khóa Học Từ Xa (SlideLock)")
         .onAppear {
             self.loadLessons()
         }

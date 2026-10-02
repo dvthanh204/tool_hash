@@ -36,9 +36,9 @@ jobs:
         mkdir -p SlideLock.app/Contents/MacOS
         mkdir -p SlideLock.app/Contents/Resources
         
-        # Compile targeting macOS 11.0 minimum supporting Apple Silicon & Intel natively
+        # Compile targeting macOS 11.0 minimum supporting Apple Silicon & Intel natively (10.15 for Intel)
         swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_arm64 -target arm64-apple-macosx11.0 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation || true
-        swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_x86_64 -target x86_64-apple-macosx11.0 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation || true
+        swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_x86_64 -target x86_64-apple-macosx10.15 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation || true
         
         # Merge or use whatever compiled successfully
         if [ -f SlideLock_arm64 ] && [ -f SlideLock_x86_64 ]; then
@@ -65,7 +65,7 @@ jobs:
             <key>CFBundleShortVersionString</key>
             <string>1.0</string>
             <key>LSMinimumSystemVersion</key>
-            <string>11.0</string>
+            <string>10.15</string>
         </dict>
         </plist>
         EOF
