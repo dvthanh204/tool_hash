@@ -712,7 +712,7 @@ struct MainView: View {
                     }
                     shouldContinue = false
                     
-                    let forceClose = \"\"\"
+                    let forceClose = """
                     tell application "Microsoft PowerPoint"
                         try
                             repeat with p in presentations
@@ -729,7 +729,7 @@ struct MainView: View {
                             end repeat
                         end try
                     end tell
-                    \"\"\"
+                    """
                     NSAppleScript(source: forceClose)?.executeAndReturnError(nil)
                 } else {
                     shouldContinue = (status == "OPEN")
