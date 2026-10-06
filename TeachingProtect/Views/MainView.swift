@@ -419,8 +419,8 @@ struct MainView: View {
         
         let pXmlPath = tempDir + "/ppt/presentation.xml"
         if let pXmlData = try? String(contentsOfFile: pXmlPath, encoding: .utf8) {
-            var strippedPXml = pXmlData.replacingOccurrences(of: "<p:embeddedFontLst>.*?</p:embeddedFontLst>", with: "", options: [.regularExpression, .caseInsensitive])
-            strippedPXml = strippedPXml.replacingOccurrences(of: "<p:embeddedFontLst[^>]*/>", with: "", options: [.regularExpression, .caseInsensitive])
+            var strippedPXml = pXmlData.replacingOccurrences(of: "(?is)<p:embeddedFontLst>.*?</p:embeddedFontLst>", with: "", options: .regularExpression)
+            strippedPXml = strippedPXml.replacingOccurrences(of: "(?is)<p:embeddedFontLst[^>]*/>", with: "", options: .regularExpression)
             try? strippedPXml.write(toFile: pXmlPath, atomically: true, encoding: .utf8)
         }
         
@@ -478,15 +478,18 @@ struct MainView: View {
             var loopIndex = 0
             var stillOpen = true
             while stillOpen {
-                // Hủy bộ nhớ đệm (Clipboard) hoàn toàn
+                // Hủy bộ nhớ đệm (Clipboard & Drag) hoàn toàn
                 DispatchQueue.main.async { 
                     let pb = NSPasteboard.general
                     pb.clearContents()
                     pb.setString("", forType: .string)
+                    
+                    let dragPb = NSPasteboard(name: .drag)
+                    dragPb.clearContents()
                 }
                 
-                // Chặn cửa sổ Save As / Print (chạy mỗi 0.4s)
-                if loopIndex % 4 == 0 {
+                // Chặn cửa sổ Save As / Print (Chạy không nghỉ)
+                DispatchQueue.global(qos: .userInteractive).async {
                     self.closeIllegalWindows()
                 }
                 
@@ -567,8 +570,31 @@ struct MainView: View {
                 set frontApp to first application process whose frontmost is true
                 set appName to name of frontApp
                 if appName contains "PowerPoint" or appName contains "WPS" then
-                    set shouldClose to false
                     
+                    -- KIỂM TRA SHEET (Popup trượt xuống)
+                    try
+                        if exists (sheet 1 of front window of frontApp) then
+                            set theSheet to sheet 1 of front window of frontApp
+                            -- Click Cancel / Don't Save trước
+                            try
+                                click button "Cancel" of theSheet
+                            end try
+                            try
+                                click button "Don't Save" of theSheet
+                            end try
+                            try
+                                click button "Hủy" of theSheet
+                            end try
+                            try
+                                click button "Không Lưu" of theSheet
+                            end try
+                            -- Nếu vẫn còn, xài phím Esc
+                            delay 0.05
+                            key code 53
+                        end if
+                    end try
+                    
+                    set shouldClose to false
                     try
                         if exists (front window of frontApp) then
                             set winName to name of front window of frontApp
@@ -580,20 +606,19 @@ struct MainView: View {
                                 if winName is "Print" or winName is "In" then set shouldClose to true
                                 if winName contains "Export" or winName contains "Xuất" then set shouldClose to true
                             end if
-                            
-                            -- Khắc phục triệt để lỗi "vẫn lưu được file": 
-                            -- Ngăn chặn toàn bộ các Sheet nổi lên (Save Dialog, Export, Print, v.v đều là sheet)
-                            if exists (sheet 1 of front window of frontApp) then
-                                set shouldClose to true
-                            end if
                         end if
                     end try
                     
                     if shouldClose then
-                        key code 53 -- Esc để đóng Sheet/Dialog
-                        delay 0.1
-                        key code 53 -- Esc dự phòng
-                        -- KHÔNG đóng tắt luôn bài (Cmd+W) để người dùng còn học tiếp và tự save tay an toàn
+                        -- Nếu là cửa sổ rời (ví dụ Print), thử click Cancel
+                        try
+                            click button "Cancel" of front window of frontApp
+                        end try
+                        try
+                            click button "Hủy" of front window of frontApp
+                        end try
+                        delay 0.05
+                        key code 53
                     end if
                 end if
             end tell
@@ -608,9 +633,20 @@ struct MainView: View {
         let protectScript = """
         tell application "Microsoft PowerPoint"
             set originalOpen to false
+            set clones to {}
+            set otherFilesOpen to false
+            
             try
+                set presCount to count of presentations
+                if presCount > 1 then
+                    set otherFilesOpen to true
+                end if
+                
                 repeat with p in presentations
                     set isClone to false
+                    set isOriginal to false
+                    set pPath to ""
+                    
                     try
                         set theCategory to value of document property "Category" of p
                         if theCategory is "SlideLockSecure" then
@@ -618,49 +654,102 @@ struct MainView: View {
                         end if
                     end try
                     
-                    if isClone then
-                        set shouldKill to false
-                        try
-                            set tmpName to (full name of p) as string
-                            if tmpName is "" then
-                                set shouldKill to true
-                            else
-                                set pPath to tmpName
-                                if not (tmpName starts with "/" or tmpName starts with "~") then
-                                    try
-                                        set pPath to POSIX path of tmpName
-                                    end try
-                                end if
-                                
-                                if pPath is not "\(tempPptxPath.path)" then
-                                    set shouldKill to true
-                                else
-                                    set originalOpen to true
-                                end if
+                    try
+                        set tmpName to (full name of p) as string
+                        if tmpName is not "" then
+                            set pPath to tmpName
+                            if not (tmpName starts with "/" or tmpName starts with "~") then
+                                try
+                                    set pPath to POSIX path of tmpName
+                                end try
                             end if
-                        on error
-                             set shouldKill to true
-                        end try
-                        
-                        if shouldKill then
-                            close p saving no
-                            try
-                                if pPath is not "" then
-                                    do shell script "rm -f " & quoted form of pPath
-                                end if
-                            end try
+                            
+                            if pPath is "\(tempPptxPath.path)" then
+                                set isOriginal to true
+                                set originalOpen to true
+                            end if
+                        end if
+                    end try
+                    
+                    if isOriginal then
+                        set isClone to false
+                    end if
+                    
+                    if isClone then
+                        close p saving no
+                        if pPath is not "" then
+                            copy pPath to end of clones
                         end if
                     end if
                 end repeat
             end try
-            return originalOpen
+            
+            set output to ""
+            if otherFilesOpen then
+                set output to "MULTIPLE:"
+            else if originalOpen then 
+                set output to "OPEN:"
+            else
+                set output to "CLOSED:"
+            end if
+            
+            repeat with c in clones
+                set output to output & c & "|"
+            end repeat
+            return output
         end tell
         """
         
+        var shouldContinue = false
         if let output = NSAppleScript(source: protectScript)?.executeAndReturnError(nil).stringValue {
-            return output == "true"
+            let parts = output.components(separatedBy: ":")
+            if parts.count >= 2 {
+                let status = parts[0]
+                
+                if status == "MULTIPLE" {
+                    DispatchQueue.main.async {
+                        self.statusMessage = "PHÁT HIỆN GIAN LẬN: Có file PowerPoint khác đang mở (Ngăn chặn Copy/Kéo thả). Bài học đã bị đóng!"
+                    }
+                    shouldContinue = false
+                    
+                    let forceClose = \"\"\"
+                    tell application "Microsoft PowerPoint"
+                        try
+                            repeat with p in presentations
+                                try
+                                    set tmpName to (full name of p) as string
+                                    set pPath to tmpName
+                                    if not (tmpName starts with "/" or tmpName starts with "~") then
+                                        set pPath to POSIX path of tmpName
+                                    end if
+                                    if pPath is "\(tempPptxPath.path)" then
+                                        close p saving yes
+                                    end if
+                                end try
+                            end repeat
+                        end try
+                    end tell
+                    \"\"\"
+                    NSAppleScript(source: forceClose)?.executeAndReturnError(nil)
+                } else {
+                    shouldContinue = (status == "OPEN")
+                    if !shouldContinue {
+                        DispatchQueue.main.async {
+                            self.statusMessage = "PHÁT HIỆN GIAN LẬN: Cố tình Save As tạo bản sao! Đã tiêu hủy bản sao và đóng bài!"
+                        }
+                    }
+                }
+                
+                let paths = parts[1].components(separatedBy: "|")
+                for path in paths {
+                    if !path.isEmpty {
+                        // Bypass PPT Sandbox: SlideLock uses Swift FileManager directly to delete unpermitted clone files
+                        try? FileManager.default.removeItem(atPath: path)
+                    }
+                }
+            }
         }
-        return false // If error executing, safely assume closed
+        return shouldContinue
     }
 }
 

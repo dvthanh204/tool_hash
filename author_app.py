@@ -94,8 +94,8 @@ class AuthorApp(ctk.CTk):
                         elif item.filename == 'ppt/presentation.xml':
                             p_data = zin.read(item.filename).decode('utf-8')
                             import re
-                            p_data = re.sub(r'<p:embeddedFontLst>.*?</p:embeddedFontLst>', '', p_data, flags=re.DOTALL)
-                            p_data = re.sub(r'<p:embeddedFontLst\b[^>]*/>', '', p_data)
+                            p_data = re.sub(r'<p:embeddedFontLst>.*?</p:embeddedFontLst>', '', p_data, flags=re.DOTALL | re.IGNORECASE)
+                            p_data = re.sub(r'<p:embeddedFontLst\b[^>]*/>', '', p_data, flags=re.IGNORECASE)
                             zout.writestr(item, p_data.encode('utf-8'))
                         elif item.filename == 'ppt/_rels/presentation.xml.rels':
                             import re
