@@ -2,6 +2,32 @@ import SwiftUI
 import Foundation
 import CryptoKit
 
+struct AppLogger {
+    static func writeLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let timestamp = formatter.string(from: Date())
+        let logLine = "[\(timestamp)] \(message)\n"
+        
+        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        guard let docDir = paths.first else { return }
+        let logFileURL = docDir.appendingPathComponent("SlideLock_Debug.log")
+        
+        do {
+            if FileManager.default.fileExists(atPath: logFileURL.path) {
+                let fileHandle = try FileHandle(forWritingTo: logFileURL)
+                fileHandle.seekToEndOfFile()
+                if let data = logLine.data(using: .utf8) { fileHandle.write(data) }
+                fileHandle.closeFile()
+            } else {
+                try logLine.write(to: logFileURL, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            print("Cannot write log: \(error)")
+        }
+    }
+}
+
 struct MainView: View {
     struct LessonInfo: Hashable {
         let safeName: String
@@ -622,86 +648,105 @@ struct MainView: View {
                     end if
                 end if
             end tell
+            return "SUCCESS"
+        on error errMsg number errNum
+            return "ERROR: " & errMsg & " (" & errNum & ")"
         end try
         """
         if let scriptObj = NSAppleScript(source: script) {
-            scriptObj.executeAndReturnError(nil)
+            var errorInfo: NSDictionary?
+            let desc = scriptObj.executeAndReturnError(&errorInfo)
+            if let output = desc.stringValue, output.starts(with: "ERROR") {
+                AppLogger.writeLog("AppleScript Exception in closeIllegalWindows (System Events Accessibility issue?): \(output)")
+            } else if let err = errorInfo {
+                AppLogger.writeLog("Internal Error in closeIllegalWindows: \(err)")
+            }
         }
     }
     
     private func scanAndKillClones(tempPptxPath: URL) -> Bool {
         let protectScript = """
-        tell application "Microsoft PowerPoint"
-            set originalOpen to false
-            set clones to {}
-            set otherFilesOpen to false
-            
-            try
-                set presCount to count of presentations
-                if presCount > 1 then
-                    set otherFilesOpen to true
+        try
+            tell application "Microsoft PowerPoint"
+                set originalOpen to false
+                set clones to {}
+                set otherFilesOpen to false
+                
+                try
+                    set presCount to count of presentations
+                    if presCount > 1 then
+                        set otherFilesOpen to true
+                    end if
+                    
+                    repeat with p in presentations
+                        set isClone to false
+                        set isOriginal to false
+                        set pPath to ""
+                        
+                        try
+                            set theCategory to value of document property "Category" of p
+                            if theCategory is "SlideLockSecure" then
+                                set isClone to true
+                            end if
+                        end try
+                        
+                        try
+                            set tmpName to (full name of p) as string
+                            if tmpName is not "" then
+                                set pPath to tmpName
+                                if not (tmpName starts with "/" or tmpName starts with "~") then
+                                    try
+                                        set pPath to POSIX path of tmpName
+                                    end try
+                                end if
+                                
+                                if pPath is "\(tempPptxPath.path)" then
+                                    set isOriginal to true
+                                    set originalOpen to true
+                                end if
+                            end if
+                        end try
+                        
+                        if isOriginal then
+                            set isClone to false
+                        end if
+                        
+                        if isClone then
+                            close p saving no
+                            if pPath is not "" then
+                                copy pPath to end of clones
+                            end if
+                        end if
+                    end repeat
+                end try
+                
+                set output to ""
+                if otherFilesOpen then
+                    set output to "MULTIPLE:"
+                else if originalOpen then 
+                    set output to "OPEN:"
+                else
+                    set output to "CLOSED:"
                 end if
                 
-                repeat with p in presentations
-                    set isClone to false
-                    set isOriginal to false
-                    set pPath to ""
-                    
-                    try
-                        set theCategory to value of document property "Category" of p
-                        if theCategory is "SlideLockSecure" then
-                            set isClone to true
-                        end if
-                    end try
-                    
-                    try
-                        set tmpName to (full name of p) as string
-                        if tmpName is not "" then
-                            set pPath to tmpName
-                            if not (tmpName starts with "/" or tmpName starts with "~") then
-                                try
-                                    set pPath to POSIX path of tmpName
-                                end try
-                            end if
-                            
-                            if pPath is "\(tempPptxPath.path)" then
-                                set isOriginal to true
-                                set originalOpen to true
-                            end if
-                        end if
-                    end try
-                    
-                    if isOriginal then
-                        set isClone to false
-                    end if
-                    
-                    if isClone then
-                        close p saving no
-                        if pPath is not "" then
-                            copy pPath to end of clones
-                        end if
-                    end if
+                repeat with c in clones
+                    set output to output & c & "|"
                 end repeat
-            end try
-            
-            set output to ""
-            if otherFilesOpen then
-                set output to "MULTIPLE:"
-            else if originalOpen then 
-                set output to "OPEN:"
-            else
-                set output to "CLOSED:"
-            end if
-            
-            repeat with c in clones
-                set output to output & c & "|"
-            end repeat
-            return output
-        end tell
+                return output
+            end tell
+        on error errMsg number errNum
+            return "ERROR:" & errMsg & ":" & errNum
+        end try
         """
         
         var shouldContinue = false
-        if let output = NSAppleScript(source: protectScript)?.executeAndReturnError(nil).stringValue {
+        var errorInfo: NSDictionary?
+        if let output = NSAppleScript(source: protectScript)?.executeAndReturnError(&errorInfo).stringValue {
+            if output.starts(with: "ERROR:") {
+                AppLogger.writeLog("AppleScript Exception in scanAndKillClones (PowerPoint automation issue?): \(output)")
+                return true // Keep running if temporary automation timeout/error occurs
+            }
+            
             let parts = output.components(separatedBy: ":")
             if parts.count >= 2 {
                 let status = parts[0]
