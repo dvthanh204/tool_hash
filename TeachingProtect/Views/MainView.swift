@@ -59,15 +59,9 @@ struct MainView: View {
                                 Circle()
                                     .fill(LinearGradient(colors: [.blue, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
                                     .frame(width: 36, height: 36)
-                                if #available(macOS 11.0, *) {
-                                    Image(systemName: "play.rectangle.fill")
-                                        .foregroundColor(.white)
-                                        .font(.system(size: 14))
-                                } else {
-                                    Text("▶")
-                                        .foregroundColor(.white)
-                                        .font(.system(size: 14))
-                                }
+                                Image(systemName: "play.rectangle.fill")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 14))
                             }
                             
                             VStack(alignment: .leading, spacing: 4) {
@@ -140,14 +134,9 @@ struct MainView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.blue)
                     } else {
-                        if #available(macOS 11.0, *) {
-                            Image(systemName: lessons.isEmpty ? "exclamationmark.triangle" : "app.dashed")
-                                .font(.system(size: 50))
-                                .foregroundColor(lessons.isEmpty ? .orange : .secondary.opacity(0.5))
-                        } else {
-                            Text(lessons.isEmpty ? "⚠️" : "📂")
-                                .font(.system(size: 50))
-                        }
+                        Image(systemName: lessons.isEmpty ? "exclamationmark.triangle" : "app.dashed")
+                            .font(.system(size: 50))
+                            .foregroundColor(lessons.isEmpty ? .orange : .secondary.opacity(0.5))
                         Text(statusMessage)
                             .font(.system(size: 15, weight: .medium))
                             .foregroundColor(lessons.isEmpty ? .red : .secondary)
