@@ -34,7 +34,7 @@ public struct MachineID {
         guard platformExpert != 0 else { return "UNKNOWN-SERIAL" }
         defer { IOObjectRelease(platformExpert) }
         
-        if let serialNumberAsCFString = IORegistryEntryCreateCFProperty(platformExpert, kIOPlatformSerialNumberKey as CFString, kCFAllocatorDefault, 0)?.takeUnretainedValue() as? String {
+        if let serialNumberAsCFString = IORegistryEntryCreateCFProperty(platformExpert, kIOPlatformSerialNumberKey as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String {
             return serialNumberAsCFString
         }
         return "UNKNOWN-SERIAL"
@@ -51,7 +51,7 @@ public struct MachineID {
         guard platformExpert != 0 else { return "UNKNOWN-UUID" }
         defer { IOObjectRelease(platformExpert) }
         
-        if let uuidAsCFString = IORegistryEntryCreateCFProperty(platformExpert, kIOPlatformUUIDKey as CFString, kCFAllocatorDefault, 0)?.takeUnretainedValue() as? String {
+        if let uuidAsCFString = IORegistryEntryCreateCFProperty(platformExpert, kIOPlatformUUIDKey as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String {
             return uuidAsCFString
         }
         return "UNKNOWN-UUID"

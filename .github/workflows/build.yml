@@ -17,11 +17,15 @@ jobs:
         mkdir -p SlideLock.app/Contents/MacOS
         mkdir -p SlideLock.app/Contents/Resources
         
-        # Compile raw Swift files into Mach-O executable executable for both architectures targeting macOS 11.0
-        swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_x86_64 -target x86_64-apple-macosx11.0 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation
+        # Compile raw Swift files into Mach-O executable for both architectures.
+        # x86_64 targets macOS 10.15 (Catalina) since Intel Macs go back that far;
+        # arm64 targets macOS 11.0 since that is the first OS Apple Silicon ever shipped with.
+        # Using a single higher target (11.0) for x86_64 here was the bug that locked
+        # older/other Intel MacBooks out of launching the app at all.
+        swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_x86_64 -target x86_64-apple-macosx10.15 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation
         swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_arm64 -target arm64-apple-macosx11.0 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation
         lipo -create -output SlideLock.app/Contents/MacOS/SlideLock SlideLock_x86_64 SlideLock_arm64
-        
+
         # Create Info.plist
         cat <<EOF > SlideLock.app/Contents/Info.plist
         <?xml version="1.0" encoding="UTF-8"?>
@@ -39,9 +43,18 @@ jobs:
             <key>CFBundleShortVersionString</key>
             <string>1.0</string>
             <key>LSMinimumSystemVersion</key>
-            <string>11.0</string>
+            <string>10.15</string>
+            <key>LSMinimumSystemVersionByArchitecture</key>
+            <dict>
+                <key>x86_64</key>
+                <string>10.15</string>
+                <key>arm64</key>
+                <string>11.0</string>
+            </dict>
             <key>NSSupportsAutomaticGraphicsSwitching</key>
             <true/>
+            <key>NSAppleEventsUsageDescription</key>
+            <string>SlideLock cần quyền điều khiển Microsoft PowerPoint và System Events để khóa chức năng Save As / Copy trong lúc học bài.</string>
         </dict>
         </plist>
         EOF

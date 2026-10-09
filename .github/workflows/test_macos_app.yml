@@ -66,6 +66,15 @@ jobs:
             <string>1.0</string>
             <key>LSMinimumSystemVersion</key>
             <string>10.15</string>
+            <key>LSMinimumSystemVersionByArchitecture</key>
+            <dict>
+                <key>x86_64</key>
+                <string>10.15</string>
+                <key>arm64</key>
+                <string>11.0</string>
+            </dict>
+            <key>NSAppleEventsUsageDescription</key>
+            <string>SlideLock cần quyền điều khiển Microsoft PowerPoint và System Events để khóa chức năng Save As / Copy trong lúc học bài.</string>
         </dict>
         </plist>
         EOF

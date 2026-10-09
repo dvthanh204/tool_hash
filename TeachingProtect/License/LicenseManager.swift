@@ -11,17 +11,51 @@ public class LicenseManager {
         loadLicense()
     }
     
-    private func getPackageId() -> String {
+    private func getDecryptedZipPath() -> String? {
+        let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
+        if FileManager.default.fileExists(atPath: tempZipURL.path) {
+            return tempZipURL.path
+        }
+
         let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
         let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
-        if FileManager.default.fileExists(atPath: outsideUrl.path), let attrs = try? FileManager.default.attributesOfItem(atPath: outsideUrl.path), let size = attrs[.size] as? UInt64 {
-            return "\(size)"
+        let bundleUrl: URL? = FileManager.default.fileExists(atPath: outsideUrl.path) ? outsideUrl : insideUrl
+
+        guard let bundleUrl = bundleUrl,
+              let data = try? Data(contentsOf: bundleUrl), data.count > 12,
+              let secretData = "12345678901234567890123456789012".data(using: .utf8) else {
+            return nil
         }
-        if let insideUrl = insideUrl, let attrs = try? FileManager.default.attributesOfItem(atPath: insideUrl.path), let size = attrs[.size] as? UInt64 {
-            return "\(size)"
+
+        let symmetricKey = SymmetricKey(data: secretData)
+        guard let sealedBox = try? AES.GCM.SealedBox(combined: data),
+              let decrypted = try? AES.GCM.open(sealedBox, using: symmetricKey) else {
+            return nil
         }
-        // Fallback for custom file selection logic.
-        return "default"
+
+        try? decrypted.write(to: tempZipURL)
+        return tempZipURL.path
+    }
+
+    private func getPackageId() -> String {
+        // Băm nội dung manifest.json để làm mã định danh gói bài giảng, thay vì
+        // dùng kích thước file baigiang.khoa: kích thước đó đổi mỗi lần app ghi
+        // lại file sau khi đóng bài học (saveAndCleanup), khiến key tra cứu
+        // UserDefaults đổi theo và học viên bị yêu cầu nhập lại Key dù đã kích hoạt.
+        guard let zipPath = getDecryptedZipPath() else { return "default" }
+
+        let task = Process()
+        task.launchPath = "/usr/bin/unzip"
+        task.arguments = ["-p", zipPath, "manifest.json"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.launch()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+
+        guard !data.isEmpty else { return "default" }
+        let hash = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+        return String(hash.prefix(16))
     }
 
     public func loadLicense() {
@@ -76,31 +110,10 @@ public class LicenseManager {
         }
         
         // --- KIỂM TRA REVOCATIONS TỪ GÓI BAIGIANG LÕI ---
-        let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
-        if !FileManager.default.fileExists(atPath: tempZipURL.path) {
-            let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
-            let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
-            
-            let bundleUrl: URL?
-            if FileManager.default.fileExists(atPath: outsideUrl.path) {
-                bundleUrl = outsideUrl
-            } else {
-                bundleUrl = insideUrl
-            }
-            
-            if let bundleUrl = bundleUrl,
-               let data = try? Data(contentsOf: bundleUrl), data.count > 12 {
-                if let sealedBox = try? AES.GCM.SealedBox(combined: data),
-                   let decrypted = try? AES.GCM.open(sealedBox, using: symmetricKey) {
-                    try? decrypted.write(to: tempZipURL)
-                }
-            }
-        }
-        
-        if FileManager.default.fileExists(atPath: tempZipURL.path) {
+        if let zipPath = getDecryptedZipPath() {
             let task = Process()
             task.launchPath = "/usr/bin/unzip"
-            task.arguments = ["-p", tempZipURL.path, "revocations.json"]
+            task.arguments = ["-p", zipPath, "revocations.json"]
             let pipe = Pipe()
             task.standardOutput = pipe
             task.launch()
