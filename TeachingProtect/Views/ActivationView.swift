@@ -13,10 +13,17 @@ struct ActivationView: View {
             VStack(spacing: 30) {
                 
                 VStack(spacing: 12) {
-                    Image(systemName: "lock.shield.fill")
-                        .font(.system(size: 64, weight: .semibold))
-                        .foregroundColor(.blue)
-                        .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                    if #available(macOS 11.0, *) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 64, weight: .semibold))
+                            .foregroundColor(.blue)
+                            .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                    } else {
+                        Text("🔒")
+                            .font(.system(size: 64))
+                            .foregroundColor(.blue)
+                            .shadow(color: .blue.opacity(0.3), radius: 10, x: 0, y: 5)
+                    }
                     
                     Text("SlideLock Secure")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
@@ -43,9 +50,15 @@ struct ActivationView: View {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(MachineID.current, forType: .string)
                         } label: {
-                            Image(systemName: "doc.on.clipboard")
-                                .font(.system(size: 16))
-                                .foregroundColor(.blue)
+                            if #available(macOS 11.0, *) {
+                                Image(systemName: "doc.on.clipboard")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.blue)
+                            } else {
+                                Text("COPY")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.blue)
+                            }
                         }
                         .buttonStyle(.plain)
                     }
@@ -85,7 +98,11 @@ struct ActivationView: View {
                 Button(action: activate) {
                     HStack {
                         Spacer()
-                        Image(systemName: "key.fill")
+                        if #available(macOS 11.0, *) {
+                            Image(systemName: "key.fill")
+                        } else {
+                            Text("🔑")
+                        }
                         Text(isActivating ? "ĐANG XÁC THỰC..." : "MỞ BÀI GIẢNG")
                             .fontWeight(.bold)
                         Spacer()
