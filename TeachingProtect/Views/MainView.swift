@@ -734,7 +734,7 @@ struct MainView: View {
                                 set sheetName to name of theSheet
                             end try
                             if sheetName is not missing value then
-                                if sheetName contains "Save As" or sheetName contains "Save As\u2026" or ¬
+                                if sheetName contains "Save As" or sheetName contains "Save As…" or ¬
                                    sheetName contains "Lưu dưới dạng" or ¬
                                    sheetName contains "Save a Copy" or sheetName contains "Lưu bản sao" or ¬
                                    sheetName contains "Save with" or sheetName contains "Duplicate" or ¬
@@ -757,7 +757,7 @@ struct MainView: View {
                                                elName contains "File Format" or elName contains "Định dạng tệp" or ¬
                                                elName contains "Format:" or elName contains "Định dạng:" or ¬
                                                elName contains "Where:" or elName contains "Vị trí:" or ¬
-                                               elName contains "Save As\u2026" or elName contains "Save\u2026" then
+                                               elName contains "Save As…" or elName contains "Save…" then
                                                 set isIllegal to true
                                                 exit repeat
                                             end if
@@ -788,12 +788,12 @@ struct MainView: View {
                             set winName to name of front window of frontApp
                             if winName is not missing value then
                                 set isIllegalWin to false
-                                if winName contains "Save As" or winName contains "Save As\u2026" then set isIllegalWin to true
+                                if winName contains "Save As" or winName contains "Save As…" then set isIllegalWin to true
                                 if winName contains "Lưu dưới dạng" then set isIllegalWin to true
                                 if winName contains "Save a Copy" or winName contains "Lưu bản sao" then set isIllegalWin to true
                                 if winName contains "Save with" or winName contains "Phông chữ" then set isIllegalWin to true
                                 if winName contains "Duplicate" or winName contains "Bản sao" then set isIllegalWin to true
-                                if winName is "Print" or winName is "In" or winName contains "Print\u2026" then set isIllegalWin to true
+                                if winName is "Print" or winName is "In" or winName contains "Print…" then set isIllegalWin to true
                                 if winName contains "Export" or winName contains "Xuất" then set isIllegalWin to true
                                 if winName contains "Publish" or winName contains "Phát hành" then set isIllegalWin to true
                                 -- NSSavePanel thường có tên là chuỗi rỗng, nhưng chứa button Save/Lưu
