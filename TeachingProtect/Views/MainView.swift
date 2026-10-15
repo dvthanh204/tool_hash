@@ -178,9 +178,9 @@ struct MainView: View {
     }
     
     private func getDecryptedZipURL() throws -> URL {
-        let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
-        if FileManager.default.fileExists(atPath: tempZipURL.path) {
-            return tempZipURL
+        let vaultURL = SecureStorage.secureVaultURL
+        if FileManager.default.fileExists(atPath: vaultURL.path) {
+            return vaultURL
         }
         
         let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
@@ -206,8 +206,8 @@ struct MainView: View {
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: data)
             let decryptedData = try AES.GCM.open(sealedBox, using: symmetricKey)
-            try decryptedData.write(to: tempZipURL)
-            return tempZipURL
+            try decryptedData.write(to: vaultURL)
+            return vaultURL
         } catch {
             print("Decrypt failed: \(error)")
             throw AppError.decryptFailed
@@ -218,7 +218,6 @@ struct MainView: View {
         do {
             let zipURL = try getDecryptedZipURL()
             
-            // Re-validate against the ban list to prevent App Translocation bypass!
             let revTask = Process()
             revTask.launchPath = "/usr/bin/unzip"
             revTask.arguments = ["-p", zipURL.path, "revocations.json"]
@@ -247,7 +246,6 @@ struct MainView: View {
             var loadedLessons: [LessonInfo] = []
             
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
-                // Sắp xếp the key safeName e.g., lesson_0.pptx, lesson_1.pptx
                 let sortedKeys = json.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
                 for safeName in sortedKeys {
                     if let displayName = json[safeName] {
@@ -255,7 +253,6 @@ struct MainView: View {
                     }
                 }
             } else {
-                // Fallback nếu manifest.json bị lỗi, đọc lại kiểu cũ unzip -Z1 (cho thẻ cũ chưa kịp tạo manifest)
                 let task2 = Process()
                 task2.launchPath = "/usr/bin/unzip"
                 task2.arguments = ["-Z1", zipURL.path]
@@ -289,22 +286,22 @@ struct MainView: View {
     
     private func openLesson(_ lesson: LessonInfo) {
         isProcessing = true
-        statusMessage = "Đang trích xuất và mã hóa file, vui lòng chờ..."
+        statusMessage = "Đang chuẩn bị bài học: \(lesson.displayName)..."
         
         DispatchQueue.global(qos: .userInitiated).async {
             guard let zipURL = try? self.getDecryptedZipURL() else {
-                DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi xác thực dữ liệu nguồn." }
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "Lỗi xác thực dữ liệu nguồn."
+                }
                 return
             }
             
-            // Xử lý extract theo safeName, dùng UUID để giấu đường dẫn và Set quyền execute-only (chống Finder mở)
-            let secureTemp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("TeachingProtectTemp").appendingPathComponent(UUID().uuidString)
-            try? FileManager.default.createDirectory(at: secureTemp, withIntermediateDirectories: true)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o333], ofItemAtPath: secureTemp.path)
+            // Tạo thư mục phiên làm việc ẩn và bảo mật tuyệt đối
+            let sessionFolder = SecureStorage.createSessionFolder()
+            let extractURL = sessionFolder.appendingPathComponent(lesson.displayName)
             
-            let extractURL = secureTemp.appendingPathComponent(lesson.displayName)
-            
-            // 1. Trích xuất đúng 1 file PPTX
+            // Trích xuất file bài giảng
             let task = Process()
             task.launchPath = "/usr/bin/unzip"
             task.arguments = ["-p", zipURL.path, lesson.safeName]
@@ -315,31 +312,33 @@ struct MainView: View {
             task.waitUntilExit()
             
             guard extractedData.count > 0 else {
-                DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi giải nén bài giảng." }
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "Lỗi giải nén bài giảng."
+                }
                 return
             }
             
             do {
                 try extractedData.write(to: extractURL)
             } catch {
-                DispatchQueue.main.async { self.isProcessing = false; self.statusMessage = "Lỗi lưu cache tạm thời." }
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "Lỗi lưu cache tạm thời."
+                }
                 return
             }
             
-            // 2. Chèn XML vô hiệu hóa giao diện Save As / Print / Copy
+            // Chèn bảo vệ CustomUI XML chặn Save As / Export / Print (vẫn cho phép sửa bài, copy nội bộ, tăng cỡ chữ)
             self.injectDisableSaveAs(pptxPath: extractURL.path)
             
             DispatchQueue.main.async {
-                self.statusMessage = "Đang mở: \(lesson.displayName)... (Đã Khóa Bảo Mật)"
+                self.statusMessage = "Đang mở: \(lesson.displayName)..."
                 
-                // Mở PPT ở Normal Mode bằng AppleScript và tạo tag để chặn Save As/Duplicate
                 let script = """
                 tell application "Microsoft PowerPoint"
                     activate
-                    set thePres to open (POSIX file "\(extractURL.path)")
-                    try
-                        set value of document property "Category" of thePres to "SlideLockSecure"
-                    end try
+                    open (POSIX file "\(extractURL.path)")
                 end tell
                 """
                 if let scriptObj = NSAppleScript(source: script) {
@@ -358,8 +357,7 @@ struct MainView: View {
                     NSWorkspace.shared.open(extractURL)
                 }
                 
-                // 3. Chạy luồng quét bảo vệ
-                self.watchPowerPoint(tempPptxPath: extractURL, originalName: lesson.safeName)
+                self.watchPowerPoint(tempPptxPath: extractURL, sessionDir: sessionFolder, originalName: lesson.safeName)
             }
         }
     }
@@ -367,82 +365,143 @@ struct MainView: View {
     private func injectDisableSaveAs(pptxPath: String) {
         let tempDir = pptxPath + "_temp_ext"
         
-        // Giải nén file PPTX (đó là zip)
         let unz = Process()
         unz.launchPath = "/usr/bin/unzip"
         unz.arguments = ["-q", "-o", pptxPath, "-d", tempDir]
         unz.launch()
         unz.waitUntilExit()
         
-        // Đọc .rels file
+        // Ghi relationship vào _rels/.rels (root-level)
         let relsPath = tempDir + "/_rels/.rels"
-        if let relsData = try? String(contentsOfFile: relsPath, encoding: .utf8), !relsData.contains("customUI") {
-            if let insertIdx = relsData.range(of: "</Relationships>", options: .backwards)?.lowerBound {
-                let relStr = "<Relationship Id=\"rIdCustomUI\" Type=\"http://schemas.microsoft.com/office/2007/relationships/ui/extensibility\" Target=\"customUI/customUI14.xml\"/>"
-                let newRels = String(relsData[..<insertIdx]) + relStr + String(relsData[insertIdx...])
-                try? newRels.write(toFile: relsPath, atomically: true, encoding: String.Encoding.utf8)
+        if var relsData = try? String(contentsOfFile: relsPath, encoding: .utf8) {
+            var modified = false
+            if !relsData.contains("customUI/customUI.xml") {
+                // Dùng đúng namespace 2006 cho customUI 2007
+                if let insertIdx = relsData.range(of: "</Relationships>", options: .backwards)?.lowerBound {
+                    let relStr = "<Relationship Id=\"rIdCustomUI\" Type=\"http://schemas.microsoft.com/office/2006/relationships/ui/extensibility\" Target=\"customUI/customUI.xml\"/>"
+                    relsData = String(relsData[..<insertIdx]) + relStr + String(relsData[insertIdx...])
+                    modified = true
+                }
             }
+            if !relsData.contains("customUI/customUI14.xml") {
+                // Dùng đúng namespace 2007 cho customUI14 (Office 2010+/Mac)
+                if let insertIdx = relsData.range(of: "</Relationships>", options: .backwards)?.lowerBound {
+                    let relStr = "<Relationship Id=\"rIdCustomUI14\" Type=\"http://schemas.microsoft.com/office/2007/relationships/ui/extensibility\" Target=\"customUI/customUI14.xml\"/>"
+                    relsData = String(relsData[..<insertIdx]) + relStr + String(relsData[insertIdx...])
+                    modified = true
+                }
+            }
+            if modified {
+                try? relsData.write(toFile: relsPath, atomically: true, encoding: .utf8)
+            }
+        } else {
+            // Nếu không có file _rels/.rels, tạo mới
+            let relsDir = tempDir + "/_rels"
+            try? FileManager.default.createDirectory(atPath: relsDir, withIntermediateDirectories: true)
+            let defaultRels = """<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>
+<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">
+<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"ppt/presentation.xml\"/>
+<Relationship Id=\"rIdCustomUI\" Type=\"http://schemas.microsoft.com/office/2006/relationships/ui/extensibility\" Target=\"customUI/customUI.xml\"/>
+<Relationship Id=\"rIdCustomUI14\" Type=\"http://schemas.microsoft.com/office/2007/relationships/ui/extensibility\" Target=\"customUI/customUI14.xml\"/>
+</Relationships>"""
+            try? defaultRels.write(toFile: relsPath, atomically: true, encoding: .utf8)
         }
         
-        // Tạo Custom UI XML
         let customUiDir = tempDir + "/customUI"
         try? FileManager.default.createDirectory(atPath: customUiDir, withIntermediateDirectories: true)
         
-        let customXml = """
-        <customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
-            <!-- SlideLockSecureSignature -->
-            <commands>
-                <command idMso="FileSaveAs" enabled="false"/>
-                <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
-                <command idMso="FileSaveAsPicture" enabled="false"/>
-                <command idMso="FileSaveACopy" enabled="false"/>
-                <command idMso="FileExport" enabled="false"/>
-                <command idMso="FileExportAsPdf" enabled="false"/>
-                <command idMso="PublishToPdfOrXps" enabled="false"/>
-                <command idMso="CreateVideo" enabled="false"/>
-                <command idMso="FileExportToVideo" enabled="false"/>
-                <command idMso="PackageForCd" enabled="false"/>
-                <command idMso="CreateHandouts" enabled="false"/>
-                <command idMso="ShareDocument" enabled="false"/>
-                <command idMso="FileSendAsAttachment" enabled="false"/>
-                <command idMso="FileSendAsPdf" enabled="false"/>
-                <command idMso="FilePrint" enabled="false"/>
-                <command idMso="FilePrintQuick" enabled="false"/>
-                <command idMso="PrintPreviewAndPrint" enabled="false"/>
-                <command idMso="PictureSaveAs" enabled="false"/>
-                <command idMso="SaveMediaAs" enabled="false"/>
-                <command idMso="FileSaveAsMac" enabled="false"/>
-                <command idMso="FilePrintMac" enabled="false"/>
-                <command idMso="Export" enabled="false"/>
-                <command idMso="Copy" enabled="false"/>
-                <command idMso="Cut" enabled="false"/>
-                <command idMso="SlideCopy" enabled="false"/>
-                <command idMso="SlideCut" enabled="false"/>
-                <command idMso="DuplicateSlide" enabled="false"/>
-            </commands>
-            <ribbon>
-                <backstage>
-                    <tab idMso="TabSave" visible="false"/>
-                    <button idMso="FileSaveAs" visible="false"/>
-                    <tab idMso="TabPrint" visible="false"/>
-                    <tab idMso="TabExport" visible="false"/>
-                    <tab idMso="TabShare" visible="false"/>
-                    <tab idMso="TabPublish" visible="false"/>
-                </backstage>
-            </ribbon>
-        </customUI>
-        """
-        try? customXml.write(toFile: customUiDir + "/customUI14.xml", atomically: true, encoding: .utf8)
+        // customUI.xml - dùng cho PowerPoint 2007/2008, namespace chính thức 2006/01
+        let customXml2007 = """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="">
+    <commands>
+        <command idMso="FileSave" onAction="" enabled="true"/>
+        <command idMso="FileSaveAs" enabled="false"/>
+        <command idMso="FileSaveAsMenu" enabled="false"/>
+        <command idMso="FileSaveAsMac" enabled="false"/>
+        <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+        <command idMso="FileSaveACopy" enabled="false"/>
+        <command idMso="FileSaveAsPicture" enabled="false"/>
+        <command idMso="FileSaveCopyAs" enabled="false"/>
+        <command idMso="PictureSaveAs" enabled="false"/>
+        <command idMso="SaveMediaAs" enabled="false"/>
+        <command idMso="Export" enabled="false"/>
+        <command idMso="FileExport" enabled="false"/>
+        <command idMso="FileExportAsPdf" enabled="false"/>
+        <command idMso="PublishToPdfOrXps" enabled="false"/>
+        <command idMso="CreateVideo" enabled="false"/>
+        <command idMso="FileExportToVideo" enabled="false"/>
+        <command idMso="PackageForCd" enabled="false"/>
+        <command idMso="CreateHandouts" enabled="false"/>
+        <command idMso="Share" enabled="false"/>
+        <command idMso="ShareDocument" enabled="false"/>
+        <command idMso="FileSendAsAttachment" enabled="false"/>
+        <command idMso="FileSendAsPdf" enabled="false"/>
+        <command idMso="FilePrint" enabled="false"/>
+        <command idMso="FilePrintMac" enabled="false"/>
+        <command idMso="FilePrintQuick" enabled="false"/>
+        <command idMso="PrintPreviewAndPrint" enabled="false"/>
+        <command idMso="ApplicationOptionsDialog" enabled="false"/>
+        <command idMso="Duplicate" enabled="false"/>
+    </commands>
+</customUI>
+"""
+        try? customXml2007.write(toFile: customUiDir + "/customUI.xml", atomically: true, encoding: .utf8)
         
-        // --- Xóa font nhúng để bỏ qua hộp thoại cảnh báo Font của Mac ---
+        // customUI14.xml - dùng cho Office 2010+ và PowerPoint for Mac hiện đại, namespace 2009/07
+        let customXml2010 = """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" onLoad="">
+    <commands>
+        <command idMso="FileSave" onAction="" enabled="true"/>
+        <command idMso="FileSaveAs" enabled="false"/>
+        <command idMso="FileSaveAsMenu" enabled="false"/>
+        <command idMso="FileSaveAsMac" enabled="false"/>
+        <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+        <command idMso="FileSaveACopy" enabled="false"/>
+        <command idMso="FileSaveAsPicture" enabled="false"/>
+        <command idMso="FileSaveCopyAs" enabled="false"/>
+        <command idMso="PictureSaveAs" enabled="false"/>
+        <command idMso="SaveMediaAs" enabled="false"/>
+        <command idMso="Export" enabled="false"/>
+        <command idMso="FileExport" enabled="false"/>
+        <command idMso="FileExportAsPdf" enabled="false"/>
+        <command idMso="PublishToPdfOrXps" enabled="false"/>
+        <command idMso="CreateVideo" enabled="false"/>
+        <command idMso="FileExportToVideo" enabled="false"/>
+        <command idMso="PackageForCd" enabled="false"/>
+        <command idMso="CreateHandouts" enabled="false"/>
+        <command idMso="Share" enabled="false"/>
+        <command idMso="ShareDocument" enabled="false"/>
+        <command idMso="FileSendAsAttachment" enabled="false"/>
+        <command idMso="FileSendAsPdf" enabled="false"/>
+        <command idMso="FilePrint" enabled="false"/>
+        <command idMso="FilePrintMac" enabled="false"/>
+        <command idMso="FilePrintQuick" enabled="false"/>
+        <command idMso="PrintPreviewAndPrint" enabled="false"/>
+        <command idMso="ApplicationOptionsDialog" enabled="false"/>
+        <command idMso="Duplicate" enabled="false"/>
+    </commands>
+    <ribbon>
+        <backstage>
+            <tab idMso="TabSave" visible="false"/>
+            <tab idMso="TabPrint" visible="false"/>
+            <tab idMso="TabExport" visible="false"/>
+            <tab idMso="TabShare" visible="false"/>
+            <tab idMso="TabPublish" visible="false"/>
+        </backstage>
+    </ribbon>
+</customUI>
+"""
+        try? customXml2010.write(toFile: customUiDir + "/customUI14.xml", atomically: true, encoding: .utf8)
+        
+        // Xoá font nhúng để tránh lưu lại được
         try? FileManager.default.removeItem(atPath: tempDir + "/ppt/fonts")
-        
         let pRelsPath = tempDir + "/ppt/_rels/presentation.xml.rels"
         if let pRelsData = try? String(contentsOfFile: pRelsPath, encoding: .utf8) {
             let strippedPRels = pRelsData.replacingOccurrences(of: "<Relationship[^>]*relationships/font[^>]*/>", with: "", options: .regularExpression)
             try? strippedPRels.write(toFile: pRelsPath, atomically: true, encoding: .utf8)
         }
-        
         let pXmlPath = tempDir + "/ppt/presentation.xml"
         if let pXmlData = try? String(contentsOfFile: pXmlPath, encoding: .utf8) {
             var strippedPXml = pXmlData.replacingOccurrences(of: "(?is)<p:embeddedFontLst>.*?</p:embeddedFontLst>", with: "", options: .regularExpression)
@@ -450,7 +509,7 @@ struct MainView: View {
             try? strippedPXml.write(toFile: pXmlPath, atomically: true, encoding: .utf8)
         }
         
-        // Nén lại
+        // Đóng gói lại file PPTX (KHÔNG đặt read-only — nếu đặt 0444 thì Cmd+S sẽ không ghi được và PowerPoint tự bật Save As)
         let zip = Process()
         zip.launchPath = "/usr/bin/zip"
         zip.currentDirectoryPath = tempDir
@@ -458,37 +517,37 @@ struct MainView: View {
         zip.launch()
         zip.waitUntilExit()
         
-        // Cleanup tempDir
         try? FileManager.default.removeItem(atPath: tempDir)
     }
     
-    private func watchPowerPoint(tempPptxPath: URL, originalName: String) {
-        PowerPointOverlayManager.shared.startMonitoring()
-        DispatchQueue.global(qos: .background).async {
-            // Check if PowerPoint actually opened the file via AppleScript
+    private func watchPowerPoint(tempPptxPath: URL, sessionDir: URL, originalName: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
             var isOpened = false
-            for _ in 0..<300 {
-                let checkOpenScript = """
+            for _ in 0..<200 {
+                let checkScript = """
                 tell application "Microsoft PowerPoint"
                     set isOpen to false
                     try
                         repeat with p in presentations
-                            set isMatch to false
                             try
-                                set catVal to value of document property "Category" of p
-                                if catVal is "SlideLockSecure" then
-                                    set isMatch to true
+                                set tmpName to (full name of p) as string
+                                set pPath to tmpName
+                                if not (tmpName starts with "/" or tmpName starts with "~") then
+                                    try
+                                        set pPath to POSIX path of tmpName
+                                    end try
+                                end if
+                                if pPath is "\(tempPptxPath.path)" then
+                                    set isOpen to true
+                                    exit repeat
                                 end if
                             end try
-                            if isMatch then
-                                set isOpen to true
-                            end if
                         end repeat
                     end try
                     return isOpen
                 end tell
                 """
-                if let output = NSAppleScript(source: checkOpenScript)?.executeAndReturnError(nil).stringValue, output == "true" {
+                if let output = NSAppleScript(source: checkScript)?.executeAndReturnError(nil).stringValue, output == "true" {
                     isOpened = true
                     break
                 }
@@ -496,30 +555,19 @@ struct MainView: View {
             }
             
             if !isOpened {
-                self.saveAndCleanup(tempPptxPath: tempPptxPath, originalName: originalName)
+                self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName)
                 return
             }
             
-            // Loop until ALL SlideLockSecure presentations are closed legitimately
+            DispatchQueue.main.async {
+                self.statusMessage = "Bài giảng đang mở. Bạn có thể chỉnh sửa nội dung bài nhưng không thể Save As."
+            }
+            
             var loopIndex = 0
             var stillOpen = true
             while stillOpen {
-                // Hủy bộ nhớ đệm (Clipboard & Drag) hoàn toàn
-                DispatchQueue.main.async { 
-                    let pb = NSPasteboard.general
-                    pb.clearContents()
-                    pb.setString("", forType: .string)
-                    
-                    let dragPb = NSPasteboard(name: .drag)
-                    dragPb.clearContents()
-                }
+                self.closeIllegalWindows()
                 
-                // Chặn cửa sổ Save As / Print (Chạy không nghỉ)
-                DispatchQueue.global(qos: .userInteractive).async {
-                    self.closeIllegalWindows()
-                }
-                
-                // Cứ 1 giây (10 vòng) kích hoạt AppleScript Quét tìm file Clone và báo xem bản chính còn mở không
                 if loopIndex % 10 == 0 {
                     stillOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath)
                 }
@@ -532,25 +580,34 @@ struct MainView: View {
                 loopIndex += 1
             }
             
-            self.saveAndCleanup(tempPptxPath: tempPptxPath, originalName: originalName)
+            self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName)
         }
     }
     
-    private func saveAndCleanup(tempPptxPath: URL, originalName: String) {
-        PowerPointOverlayManager.shared.stopMonitoring()
-        guard let tempZip = try? getDecryptedZipURL() else { return }
+    private func saveAndCleanup(tempPptxPath: URL, sessionDir: URL, originalName: String) {
+        Thread.sleep(forTimeInterval: 0.3)
         
-        let renamedPptx = tempPptxPath.deletingLastPathComponent().appendingPathComponent(originalName)
-        try? FileManager.default.moveItem(at: tempPptxPath, to: renamedPptx)
+        guard let tempZip = try? getDecryptedZipURL() else {
+            try? FileManager.default.removeItem(at: sessionDir)
+            return
+        }
         
-        // Update zip package with modified file
-        let task = Process()
-        task.launchPath = "/usr/bin/zip"
-        task.arguments = ["-q", "-j", tempZip.path, renamedPptx.path] // Replace file inside zip
-        task.launch()
-        task.waitUntilExit()
+        if FileManager.default.fileExists(atPath: tempPptxPath.path) {
+            let renamedPptx = sessionDir.appendingPathComponent(originalName)
+            if tempPptxPath.path != renamedPptx.path {
+                try? FileManager.default.removeItem(at: renamedPptx)
+                try? FileManager.default.copyItem(at: tempPptxPath, to: renamedPptx)
+            }
+            
+            if FileManager.default.fileExists(atPath: renamedPptx.path) {
+                let task = Process()
+                task.launchPath = "/usr/bin/zip"
+                task.arguments = ["-q", "-j", tempZip.path, renamedPptx.path]
+                task.launch()
+                task.waitUntilExit()
+            }
+        }
         
-        // Re-Encrypt and write back to final bundle!
         do {
             let zipData = try Data(contentsOf: tempZip)
             
@@ -561,30 +618,30 @@ struct MainView: View {
             let sealedBox = try AES.GCM.seal(zipData, using: symmetricKey, nonce: nonce)
             let encryptedData = sealedBox.combined!
             
-            // Tìm URL của file baigiang.khoa thật! 
             let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
             let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
             
             let targetUrl: URL?
-            if FileManager.default.fileExists(atPath: outsideUrl.path) {
+            if let custom = customDataURL {
+                targetUrl = custom
+            } else if FileManager.default.fileExists(atPath: outsideUrl.path) {
                 targetUrl = outsideUrl
             } else {
                 targetUrl = insideUrl
             }
             
             if let targetUrl = targetUrl {
-                 // Try writing back. (Might fail due to sandboxing if strict, but if Ad-Hoc signed it may allow it, or fallback is OK)
-                 try? encryptedData.write(to: targetUrl)
+                try? encryptedData.write(to: targetUrl)
             }
         } catch {
             print("Failed to re-encrypt: \(error)")
         }
         
-        try? FileManager.default.removeItem(at: renamedPptx)
-        try? FileManager.default.removeItem(at: tempPptxPath) // Just in case move failed
+        try? FileManager.default.removeItem(at: sessionDir)
+        SecureStorage.cleanupAll()
         
         DispatchQueue.main.async {
-            self.statusMessage = "Đã lưu bản cập nhật bảo mật và đóng thành công."
+            self.statusMessage = "Đã lưu bản cập nhật và đóng bài giảng an toàn."
             self.isProcessing = false
         }
     }
@@ -597,55 +654,179 @@ struct MainView: View {
                 set appName to name of frontApp
                 if appName contains "PowerPoint" or appName contains "WPS" then
                     
-                    -- KIỂM TRA SHEET (Popup trượt xuống)
+                    -- 0. Xử LÝ POPUP FONT (xuất hiện khi bấm Cmd+S trên Mac)
+                    -- Cần tự click "Don't Save Fonts" để lưu bình thường, không cho user nhấn "Save a Copy"
                     try
                         if exists (sheet 1 of front window of frontApp) then
                             set theSheet to sheet 1 of front window of frontApp
-                            -- Click Cancel / Don't Save trước
+                            set isFontSheet to false
+                            
+                            -- Kiểm tra tên sheet có liên quan đến Font không
                             try
-                                click button "Cancel" of theSheet
+                                set sheetName to name of theSheet
+                                if sheetName contains "Font" or sheetName contains "Phông" or ¬
+                                   sheetName contains "font" then
+                                    set isFontSheet to true
+                                end if
                             end try
-                            try
-                                click button "Don't Save" of theSheet
-                            end try
-                            try
-                                click button "Hủy" of theSheet
-                            end try
-                            try
-                                click button "Không Lưu" of theSheet
-                            end try
-                            -- Nếu vẫn còn, xài phím Esc
-                            delay 0.05
-                            key code 53
-                        end if
-                    end try
-                    
-                    set shouldClose to false
-                    try
-                        if exists (front window of frontApp) then
-                            set winName to name of front window of frontApp
-                            if winName is not missing value then
-                                if winName is "Save" or winName is "Lưu" then set shouldClose to true
-                                if winName contains "Save As" or winName contains "Lưu dưới dạng" then set shouldClose to true
-                                if winName contains "Lưu bản sao" or winName contains "Save a Copy" then set shouldClose to true
-                                if winName contains "Save with Fonts" or winName contains "Phông chữ" then set shouldClose to true
-                                if winName is "Print" or winName is "In" then set shouldClose to true
-                                if winName contains "Export" or winName contains "Xuất" then set shouldClose to true
+                            
+                            -- Kiểm tra thêm qua nút bấm trong sheet
+                            if not isFontSheet then
+                                try
+                                    repeat with btn in (buttons of theSheet)
+                                        try
+                                            set btnTitle to title of btn
+                                            if btnTitle contains "Don't Save Fonts" or ¬
+                                               btnTitle contains "Don't Embed" or ¬
+                                               btnTitle contains "Không nhúng" or ¬
+                                               btnTitle contains "Save a Copy" or ¬
+                                               btnTitle contains "Lưu bản sao" then
+                                                set isFontSheet to true
+                                                exit repeat
+                                            end if
+                                        end try
+                                    end repeat
+                                end try
+                            end if
+                            
+                            if isFontSheet then
+                                -- Tự click "Don't Save Fonts" (lưu về file tạm, không tạo file mới)
+                                set clicked to false
+                                try
+                                    click button "Don't Save Fonts" of theSheet
+                                    set clicked to true
+                                end try
+                                if not clicked then
+                                    try
+                                        click button "Don't Embed Fonts" of theSheet
+                                        set clicked to true
+                                    end try
+                                end if
+                                if not clicked then
+                                    try
+                                        click button "Không nhúng phông" of theSheet
+                                        set clicked to true
+                                    end try
+                                end if
+                                if not clicked then
+                                    try
+                                        click button "Không lưu phông" of theSheet
+                                        set clicked to true
+                                    end try
+                                end if
+                                -- Nếu không tìm được nút phù hợp thì đóng by ESC (an toàn hơn là cứ để user click Save a Copy)
+                                if not clicked then
+                                    key code 53
+                                end if
+                                return "FONT_DIALOG_HANDLED"
                             end if
                         end if
                     end try
                     
-                    if shouldClose then
-                        -- Nếu là cửa sổ rời (ví dụ Print), thử click Cancel
-                        try
-                            click button "Cancel" of front window of frontApp
-                        end try
-                        try
-                            click button "Hủy" of front window of frontApp
-                        end try
-                        delay 0.05
-                        key code 53
-                    end if
+                    -- 1. KIỂM TRA SHEET (Popup trượt xuống từ title bar — Save As / Export / Print)
+                    try
+                        if exists (sheet 1 of front window of frontApp) then
+                            set theSheet to sheet 1 of front window of frontApp
+                            set isIllegal to false
+                            
+                            set sheetName to ""
+                            try
+                                set sheetName to name of theSheet
+                            end try
+                            if sheetName is not missing value then
+                                if sheetName contains "Save As" or sheetName contains "Save As\u2026" or ¬
+                                   sheetName contains "Lưu dưới dạng" or ¬
+                                   sheetName contains "Save a Copy" or sheetName contains "Lưu bản sao" or ¬
+                                   sheetName contains "Save with" or sheetName contains "Duplicate" or ¬
+                                   sheetName contains "Export" or sheetName contains "Xuất" or ¬
+                                   sheetName contains "Print" or sheetName contains "In " or sheetName is "In" or ¬
+                                   sheetName contains "Publish" or sheetName contains "Phát hành" or ¬
+                                   sheetName contains "Bản sao" or sheetName contains "Copy" then
+                                    set isIllegal to true
+                                end if
+                            end if
+                            
+                            if not isIllegal then
+                                try
+                                    repeat with elem in (UI elements of theSheet)
+                                        try
+                                            set elName to (name of elem) as string
+                                            if elName contains "Save As" or elName contains "Lưu dưới dạng" or ¬
+                                               elName contains "Save a Copy" or elName contains "Lưu bản sao" or ¬
+                                               elName contains "Export As" or elName contains "Xuất dưới dạng" or ¬
+                                               elName contains "File Format" or elName contains "Định dạng tệp" or ¬
+                                               elName contains "Format:" or elName contains "Định dạng:" or ¬
+                                               elName contains "Where:" or elName contains "Vị trí:" or ¬
+                                               elName contains "Save As\u2026" or elName contains "Save\u2026" then
+                                                set isIllegal to true
+                                                exit repeat
+                                            end if
+                                        end try
+                                    end repeat
+                                end try
+                            end if
+                            
+                            if isIllegal then
+                                try
+                                    click button "Cancel" of theSheet
+                                end try
+                                try
+                                    click button "Hủy" of theSheet
+                                end try
+                                try
+                                    click button "Don't Save" of theSheet
+                                end try
+                                delay 0.05
+                                key code 53
+                            end if
+                        end if
+                    end try
+                    
+                    -- 2. KIỂM TRA CỬA SỔ RIÊNG BIỆT (Save As / Print / Export / NSSavePanel)
+                    try
+                        if exists (front window of frontApp) then
+                            set winName to name of front window of frontApp
+                            if winName is not missing value then
+                                set isIllegalWin to false
+                                if winName contains "Save As" or winName contains "Save As\u2026" then set isIllegalWin to true
+                                if winName contains "Lưu dưới dạng" then set isIllegalWin to true
+                                if winName contains "Save a Copy" or winName contains "Lưu bản sao" then set isIllegalWin to true
+                                if winName contains "Save with" or winName contains "Phông chữ" then set isIllegalWin to true
+                                if winName contains "Duplicate" or winName contains "Bản sao" then set isIllegalWin to true
+                                if winName is "Print" or winName is "In" or winName contains "Print\u2026" then set isIllegalWin to true
+                                if winName contains "Export" or winName contains "Xuất" then set isIllegalWin to true
+                                if winName contains "Publish" or winName contains "Phát hành" then set isIllegalWin to true
+                                -- NSSavePanel thường có tên là chuỗi rỗng, nhưng chứa button Save/Lưu
+                                if winName is "" or winName is " " then
+                                    try
+                                        set hasSaveBtn to false
+                                        repeat with btn in (buttons of front window of frontApp)
+                                            try
+                                                set btnTitle to (title of btn) as string
+                                                if btnTitle is "Save" or btnTitle is "Lưu" then
+                                                    set hasSaveBtn to true
+                                                    exit repeat
+                                                end if
+                                            end try
+                                        end repeat
+                                        if hasSaveBtn then set isIllegalWin to true
+                                    end try
+                                end if
+                                
+                                if isIllegalWin then
+                                    try
+                                        click button "Cancel" of front window of frontApp
+                                    end try
+                                    try
+                                        click button "Hủy" of front window of frontApp
+                                    end try
+                                    delay 0.05
+                                    key code 53
+                                end if
+                            end if
+                        end if
+                    end try
+                    
                 end if
             end tell
             return "SUCCESS"
@@ -657,7 +838,7 @@ struct MainView: View {
             var errorInfo: NSDictionary?
             let desc = scriptObj.executeAndReturnError(&errorInfo)
             if let output = desc.stringValue, output.starts(with: "ERROR") {
-                AppLogger.writeLog("AppleScript Exception in closeIllegalWindows (System Events Accessibility issue?): \(output)")
+                AppLogger.writeLog("AppleScript Exception in closeIllegalWindows: \(output)")
             } else if let err = errorInfo {
                 AppLogger.writeLog("Internal Error in closeIllegalWindows: \(err)")
             }
@@ -670,25 +851,11 @@ struct MainView: View {
             tell application "Microsoft PowerPoint"
                 set originalOpen to false
                 set clones to {}
-                set otherFilesOpen to false
                 
                 try
-                    set presCount to count of presentations
-                    if presCount > 1 then
-                        set otherFilesOpen to true
-                    end if
-                    
                     repeat with p in presentations
-                        set isClone to false
                         set isOriginal to false
                         set pPath to ""
-                        
-                        try
-                            set theCategory to value of document property "Category" of p
-                            if theCategory is "SlideLockSecure" then
-                                set isClone to true
-                            end if
-                        end try
                         
                         try
                             set tmpName to (full name of p) as string
@@ -707,23 +874,19 @@ struct MainView: View {
                             end if
                         end try
                         
-                        if isOriginal then
-                            set isClone to false
-                        end if
-                        
-                        if isClone then
-                            close p saving no
-                            if pPath is not "" then
-                                copy pPath to end of clones
-                            end if
+                        if not isOriginal then
+                            try
+                                close p saving no
+                                if pPath is not "" and pPath is not "\(tempPptxPath.path)" then
+                                    copy pPath to end of clones
+                                end if
+                            end try
                         end if
                     end repeat
                 end try
                 
                 set output to ""
-                if otherFilesOpen then
-                    set output to "MULTIPLE:"
-                else if originalOpen then 
+                if originalOpen then 
                     set output to "OPEN:"
                 else
                     set output to "CLOSED:"
@@ -743,172 +906,23 @@ struct MainView: View {
         var errorInfo: NSDictionary?
         if let output = NSAppleScript(source: protectScript)?.executeAndReturnError(&errorInfo).stringValue {
             if output.starts(with: "ERROR:") {
-                AppLogger.writeLog("AppleScript Exception in scanAndKillClones (PowerPoint automation issue?): \(output)")
-                return true // Keep running if temporary automation timeout/error occurs
+                AppLogger.writeLog("AppleScript Exception in scanAndKillClones: \(output)")
+                return true
             }
             
             let parts = output.components(separatedBy: ":")
             if parts.count >= 2 {
                 let status = parts[0]
-                
-                if status == "MULTIPLE" {
-                    DispatchQueue.main.async {
-                        self.statusMessage = "PHÁT HIỆN GIAN LẬN: Có file PowerPoint khác đang mở (Ngăn chặn Copy/Kéo thả). Bài học đã bị đóng!"
-                    }
-                    shouldContinue = false
-                    
-                    let forceClose = """
-                    tell application "Microsoft PowerPoint"
-                        try
-                            repeat with p in presentations
-                                try
-                                    set tmpName to (full name of p) as string
-                                    set pPath to tmpName
-                                    if not (tmpName starts with "/" or tmpName starts with "~") then
-                                        set pPath to POSIX path of tmpName
-                                    end if
-                                    if pPath is "\(tempPptxPath.path)" then
-                                        close p saving yes
-                                    end if
-                                end try
-                            end repeat
-                        end try
-                    end tell
-                    """
-                    NSAppleScript(source: forceClose)?.executeAndReturnError(nil)
-                } else {
-                    shouldContinue = (status == "OPEN")
-                    if !shouldContinue {
-                        DispatchQueue.main.async {
-                            self.statusMessage = "PHÁT HIỆN GIAN LẬN: Cố tình Save As tạo bản sao! Đã tiêu hủy bản sao và đóng bài!"
-                        }
-                    }
-                }
+                shouldContinue = (status == "OPEN")
                 
                 let paths = parts[1].components(separatedBy: "|")
                 for path in paths {
                     if !path.isEmpty {
-                        // Bypass PPT Sandbox: SlideLock uses Swift FileManager directly to delete unpermitted clone files
                         try? FileManager.default.removeItem(atPath: path)
                     }
                 }
             }
         }
         return shouldContinue
-    }
-}
-
-class PowerPointOverlayManager {
-    static let shared = PowerPointOverlayManager()
-    
-    private var overlayWindow: NSWindow?
-    private var timer: Timer?
-    
-    // Khởi động lớp layout che
-    func startMonitoring() {
-        DispatchQueue.main.async {
-            self.createOverlay()
-            self.timer?.invalidate()
-            self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                self?.updateOverlay()
-            }
-        }
-    }
-    
-    func stopMonitoring() {
-        DispatchQueue.main.async {
-            self.timer?.invalidate()
-            self.timer = nil
-            self.overlayWindow?.orderOut(nil)
-            self.overlayWindow = nil
-        }
-    }
-    
-    private func createOverlay() {
-        if self.overlayWindow != nil { return } // Tránh tạo nhiều lần
-        
-        let win = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
-        win.level = .floating // Nằm trên các cửa sổ thông thường
-        
-        let overlayView = NSView()
-        overlayView.wantsLayer = true
-        // Dùng lưới mờ hoặc màu xám nhẹ để không cản trở hoàn toàn tầm nhìn nhưng vẫn khóa click
-        overlayView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.01).cgColor
-        
-        // Cảnh báo
-        let warningText = NSTextField(labelWithString: "Bảo mật SlideLock: Thanh công cụ bị khóa")
-        warningText.textColor = NSColor.red.withAlphaComponent(0.4)
-        warningText.font = .systemFont(ofSize: 12, weight: .bold)
-        warningText.alignment = .center
-        overlayView.addSubview(warningText)
-        
-        warningText.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            warningText.centerXAnchor.constraint(equalTo: overlayView.centerXAnchor),
-            warningText.centerYAnchor.constraint(equalTo: overlayView.centerYAnchor)
-        ])
-        
-        win.contentView = overlayView
-        win.backgroundColor = .clear
-        win.isOpaque = false
-        win.hasShadow = false
-        // Quan trọng: Phải cho phép nhận sự kiện click chuột thì mới che được
-        win.ignoresMouseEvents = false
-        
-        self.overlayWindow = win
-    }
-    
-    private func updateOverlay() {
-        guard let win = self.overlayWindow else { return }
-        
-        let activeApp = NSWorkspace.shared.frontmostApplication
-        let isPowerPointActive = activeApp?.localizedName == "Microsoft PowerPoint" || activeApp?.bundleIdentifier?.contains("Powerpoint") == true
-        
-        if !isPowerPointActive {
-            if win.isVisible {
-                win.orderOut(nil)
-            }
-            return
-        }
-        
-        let options = CGWindowListOption(arrayLiteral: .excludeDesktopElements, .optionOnScreenOnly)
-        guard let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return }
-        
-        var foundPPT = false
-        
-        for info in windowInfoList {
-            if let ownerName = info[kCGWindowOwnerName as String] as? String,
-               ownerName.contains("PowerPoint"),
-               let bounds = info[kCGWindowBounds as String] as? [String: Any],
-               let x = bounds["X"] as? CGFloat,
-               let y = bounds["Y"] as? CGFloat,
-               let width = bounds["Width"] as? CGFloat,
-               let height = bounds["Height"] as? CGFloat,
-               width > 400 && height > 300 { // Lọc cửa sổ chính của Slide học.
-                
-                // CGWindowListOption trả về toạ độ Top-Left với x, y từ góc trên cùng của màn hình chính
-                // Phải đổi lại thành toạ độ của Cocoa (Bottom-Left)
-                let screenHeight = CGDisplayBounds(CGMainDisplayID()).height
-                let cocoaY = screenHeight - y - height
-                
-                // Che 150 pixel phía trên cho thanh Ribbon/Toolbar
-                let overlayHeight: CGFloat = 160
-                let rect = CGRect(x: x, y: cocoaY + height - overlayHeight, width: width, height: overlayHeight)
-                
-                if win.frame != rect {
-                    win.setFrame(rect, display: true)
-                }
-                
-                if !win.isVisible {
-                    win.orderFront(nil)
-                }
-                foundPPT = true
-                break // Chỉ gắn vô cửa sổ bự nhất hoặc đầu tiên 
-            }
-        }
-        
-        if !foundPPT && win.isVisible {
-            win.orderOut(nil)
-        }
     }
 }

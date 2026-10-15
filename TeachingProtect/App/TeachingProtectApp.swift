@@ -32,6 +32,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }
+
+    func applicationWillTerminate(_ aNotification: Notification) {
+        SecureStorage.cleanupAll()
+    }
 }
 
 struct RootView: View {
@@ -50,9 +54,7 @@ class AppState: ObservableObject {
     @Published var isActivated: Bool = false
     
     init() {
-        let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
-        try? FileManager.default.removeItem(at: tempZipURL)
-        
+        SecureStorage.cleanupAll()
         self.isActivated = LicenseManager.shared.isActivated 
     }
 }
