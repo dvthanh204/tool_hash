@@ -12,9 +12,9 @@ public class LicenseManager {
     }
     
     private func getDecryptedZipPath() -> String? {
-        let tempZipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("baigiang.zip")
-        if FileManager.default.fileExists(atPath: tempZipURL.path) {
-            return tempZipURL.path
+        let vaultURL = SecureStorage.secureVaultURL
+        if FileManager.default.fileExists(atPath: vaultURL.path) {
+            return vaultURL.path
         }
 
         let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
@@ -33,8 +33,8 @@ public class LicenseManager {
             return nil
         }
 
-        try? decrypted.write(to: tempZipURL)
-        return tempZipURL.path
+        try? decrypted.write(to: vaultURL)
+        return vaultURL.path
     }
 
     private func getPackageId() -> String {

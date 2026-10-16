@@ -77,121 +77,163 @@ class AuthorApp(ctk.CTk):
         return card
 
     def protect_pptx(self, input_path):
-        import io
+        import io, re
         out_buf = io.BytesIO()
-        has_custom_ui = False
+
+        # --- CustomUI XML chuẩn cho PowerPoint 2007/2008 (namespace 2006/01) ---
+        custom_ui_2007 = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
+  <commands>
+    <command idMso="FileSaveAs" enabled="false"/>
+    <command idMso="FileSaveAsMenu" enabled="false"/>
+    <command idMso="FileSaveAsMac" enabled="false"/>
+    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+    <command idMso="FileSaveACopy" enabled="false"/>
+    <command idMso="FileSaveCopyAs" enabled="false"/>
+    <command idMso="FileSaveAsPicture" enabled="false"/>
+    <command idMso="PictureSaveAs" enabled="false"/>
+    <command idMso="SaveMediaAs" enabled="false"/>
+    <command idMso="Export" enabled="false"/>
+    <command idMso="FileExport" enabled="false"/>
+    <command idMso="FileExportAsPdf" enabled="false"/>
+    <command idMso="PublishToPdfOrXps" enabled="false"/>
+    <command idMso="CreateVideo" enabled="false"/>
+    <command idMso="FileExportToVideo" enabled="false"/>
+    <command idMso="PackageForCd" enabled="false"/>
+    <command idMso="CreateHandouts" enabled="false"/>
+    <command idMso="Share" enabled="false"/>
+    <command idMso="ShareDocument" enabled="false"/>
+    <command idMso="FileSendAsAttachment" enabled="false"/>
+    <command idMso="FileSendAsPdf" enabled="false"/>
+    <command idMso="FileSendAsXps" enabled="false"/>
+    <command idMso="FilePrint" enabled="false"/>
+    <command idMso="FilePrintMac" enabled="false"/>
+    <command idMso="FilePrintQuick" enabled="false"/>
+    <command idMso="PrintPreviewAndPrint" enabled="false"/>
+    <command idMso="ApplicationOptionsDialog" enabled="false"/>
+    <command idMso="Duplicate" enabled="false"/>
+    <command idMso="FileDuplicate" enabled="false"/>
+    <command idMso="FileMove" enabled="false"/>
+  </commands>
+  <ribbon>
+    <officeMenu>
+      <button idMso="FileSaveAs" visible="false"/>
+      <button idMso="FileSaveAsMenu" visible="false"/>
+      <button idMso="FilePrint" visible="false"/>
+      <button idMso="FilePrintMenu" visible="false"/>
+      <menu idMso="FileSendMenu" visible="false"/>
+      <button idMso="FilePublishToPdfOrXps" visible="false"/>
+    </officeMenu>
+  </ribbon>
+</customUI>'''
+
+        # --- CustomUI14 XML chuẩn cho Office 2010+/PowerPoint for Mac hiện đại (namespace 2009/07) ---
+        custom_ui_2010 = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+  <commands>
+    <command idMso="FileSaveAs" enabled="false"/>
+    <command idMso="FileSaveAsMenu" enabled="false"/>
+    <command idMso="FileSaveAsMac" enabled="false"/>
+    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+    <command idMso="FileSaveACopy" enabled="false"/>
+    <command idMso="FileSaveCopyAs" enabled="false"/>
+    <command idMso="FileSaveAsPicture" enabled="false"/>
+    <command idMso="PictureSaveAs" enabled="false"/>
+    <command idMso="SaveMediaAs" enabled="false"/>
+    <command idMso="Export" enabled="false"/>
+    <command idMso="FileExport" enabled="false"/>
+    <command idMso="FileExportAsPdf" enabled="false"/>
+    <command idMso="PublishToPdfOrXps" enabled="false"/>
+    <command idMso="CreateVideo" enabled="false"/>
+    <command idMso="FileExportToVideo" enabled="false"/>
+    <command idMso="PackageForCd" enabled="false"/>
+    <command idMso="CreateHandouts" enabled="false"/>
+    <command idMso="Share" enabled="false"/>
+    <command idMso="ShareDocument" enabled="false"/>
+    <command idMso="FileSendAsAttachment" enabled="false"/>
+    <command idMso="FileSendAsPdf" enabled="false"/>
+    <command idMso="FileSendAsXps" enabled="false"/>
+    <command idMso="FilePrint" enabled="false"/>
+    <command idMso="FilePrintMac" enabled="false"/>
+    <command idMso="FilePrintQuick" enabled="false"/>
+    <command idMso="PrintPreviewAndPrint" enabled="false"/>
+    <command idMso="ApplicationOptionsDialog" enabled="false"/>
+    <command idMso="Duplicate" enabled="false"/>
+    <command idMso="FileDuplicate" enabled="false"/>
+    <command idMso="FileMove" enabled="false"/>
+  </commands>
+  <ribbon>
+    <backstage>
+      <tab idMso="TabSave" visible="false"/>
+      <tab idMso="TabPrint" visible="false"/>
+      <tab idMso="TabExport" visible="false"/>
+      <tab idMso="TabShare" visible="false"/>
+      <tab idMso="TabPublish" visible="false"/>
+    </backstage>
+  </ribbon>
+</customUI>'''
+
         try:
             with zipfile.ZipFile(input_path, 'r') as zin:
+                # Thu thập dữ liệu _rels/.rels trước
+                rels_data = None
+                if '_rels/.rels' in zin.namelist():
+                    rels_data = zin.read('_rels/.rels')
+
                 with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED) as zout:
-                    rels_data = None
-                    for item in zin.infolist():
-                        # Bỏ qua các file fonts nhúng để tránh cảnh báo Font trên Mac
-                        if item.filename.startswith('ppt/fonts/'):
-                            continue
-                            
-                        if item.filename == '_rels/.rels':
-                            rels_data = zin.read(item.filename)
-                        elif item.filename == 'ppt/presentation.xml':
-                            p_data = zin.read(item.filename).decode('utf-8')
-                            import re
-                            p_data = re.sub(r'<p:embeddedFontLst>.*?</p:embeddedFontLst>', '', p_data, flags=re.DOTALL | re.IGNORECASE)
-                            p_data = re.sub(r'<p:embeddedFontLst\b[^>]*/>', '', p_data, flags=re.IGNORECASE)
-                            zout.writestr(item, p_data.encode('utf-8'))
-                        elif item.filename == 'ppt/_rels/presentation.xml.rels':
-                            import re
-                            rels_str = zin.read(item.filename).decode('utf-8')
-                            rels_str = re.sub(r'<Relationship[^>]*relationships/font[^>]*/>', '', rels_str)
-                            zout.writestr(item, rels_str.encode('utf-8'))
-                        elif 'customUI' in item.filename:
-                            has_custom_ui = True
-                            zout.writestr(item, zin.read(item.filename))
-                        else:
-                            zout.writestr(item, zin.read(item.filename))
-                    
-                    if not has_custom_ui and rels_data:
+                    # Ghi _rels/.rels ĐẦU TIÊN với relationship customUI đã chèn
+                    if rels_data:
                         rels_str = rels_data.decode('utf-8')
+                        # Xóa mọi khai báo quan hệ customUI cũ nếu có
+                        rels_str = re.sub(r'<Relationship[^>]*customUI[^>]*/>', '', rels_str)
                         if '<Relationships' in rels_str:
                             rel_tag1 = '<Relationship Id="rIdCustomUI" Type="http://schemas.microsoft.com/office/2006/relationships/ui/extensibility" Target="customUI/customUI.xml"/>'
                             rel_tag2 = '<Relationship Id="rIdCustomUI14" Type="http://schemas.microsoft.com/office/2007/relationships/ui/extensibility" Target="customUI/customUI14.xml"/>'
                             rels_str = rels_str.replace('</Relationships>', rel_tag1 + rel_tag2 + '</Relationships>')
-                            zout.writestr('_rels/.rels', rels_str.encode('utf-8'))
-                            
-                            custom_ui_2007 = b'''<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
-  <commands>
-    <command idMso="FileSaveAs" enabled="false"/>
-    <command idMso="FileSaveAsMenu" enabled="false"/>
-    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
-    <command idMso="ApplicationOptionsDialog" enabled="false"/>
-    <command idMso="Export" enabled="false"/>
-    <command idMso="Share" enabled="false"/>
-    <command idMso="FileSaveAsPicture" enabled="false"/>
-    <command idMso="FileSaveACopy" enabled="false"/>
-    <command idMso="FileExport" enabled="false"/>
-    <command idMso="FileExportAsPdf" enabled="false"/>
-    <command idMso="PublishToPdfOrXps" enabled="false"/>
-    <command idMso="CreateVideo" enabled="false"/>
-    <command idMso="FileExportToVideo" enabled="false"/>
-    <command idMso="PackageForCd" enabled="false"/>
-    <command idMso="CreateHandouts" enabled="false"/>
-    <command idMso="ShareDocument" enabled="false"/>
-    <command idMso="FileSendAsAttachment" enabled="false"/>
-    <command idMso="FileSendAsPdf" enabled="false"/>
-    <command idMso="FilePrint" enabled="false"/>
-    <command idMso="FilePrintQuick" enabled="false"/>
-    <command idMso="PrintPreviewAndPrint" enabled="false"/>
-    <command idMso="PictureSaveAs" enabled="false"/>
-    <command idMso="SaveMediaAs" enabled="false"/>
-  </commands>
-</customUI>'''
+                        zout.writestr('_rels/.rels', rels_str.encode('utf-8'))
+                    else:
+                        # Tạo _rels/.rels mặc định nếu không có
+                        default_rels = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+<Relationship Id="rIdCustomUI" Type="http://schemas.microsoft.com/office/2006/relationships/ui/extensibility" Target="customUI/customUI.xml"/>
+<Relationship Id="rIdCustomUI14" Type="http://schemas.microsoft.com/office/2007/relationships/ui/extensibility" Target="customUI/customUI14.xml"/>
+</Relationships>'''
+                        zout.writestr('_rels/.rels', default_rels)
 
-                            custom_ui_2010 = b'''<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
-  <commands>
-    <command idMso="FileSaveAs" enabled="false"/>
-    <command idMso="FileSaveAsMenu" enabled="false"/>
-    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
-    <command idMso="ApplicationOptionsDialog" enabled="false"/>
-    <command idMso="Export" enabled="false"/>
-    <command idMso="Share" enabled="false"/>
-    <command idMso="FileSaveAsPicture" enabled="false"/>
-    <command idMso="FileSaveACopy" enabled="false"/>
-    <command idMso="FileExport" enabled="false"/>
-    <command idMso="FileExportAsPdf" enabled="false"/>
-    <command idMso="PublishToPdfOrXps" enabled="false"/>
-    <command idMso="CreateVideo" enabled="false"/>
-    <command idMso="FileExportToVideo" enabled="false"/>
-    <command idMso="PackageForCd" enabled="false"/>
-    <command idMso="CreateHandouts" enabled="false"/>
-    <command idMso="ShareDocument" enabled="false"/>
-    <command idMso="FileSendAsAttachment" enabled="false"/>
-    <command idMso="FileSendAsPdf" enabled="false"/>
-    <command idMso="FilePrint" enabled="false"/>
-    <command idMso="FilePrintQuick" enabled="false"/>
-    <command idMso="PrintPreviewAndPrint" enabled="false"/>
-    <command idMso="PictureSaveAs" enabled="false"/>
-    <command idMso="SaveMediaAs" enabled="false"/>
-  </commands>
-  <ribbon>
-    <backstage>
-        <tab idMso="TabSave" visible="false"/>
-        <button idMso="FileSaveAs" visible="false"/>
-        <tab idMso="TabPrint" visible="false"/>
-        <tab idMso="TabExport" visible="false"/>
-        <tab idMso="TabShare" visible="false"/>
-        <tab idMso="TabPublish" visible="false"/>
-    </backstage>
-  </ribbon>
-</customUI>'''
-                            zout.writestr('customUI/customUI.xml', custom_ui_2007)
-                            zout.writestr('customUI/customUI14.xml', custom_ui_2010)
+                    # Ghi customUI files
+                    zout.writestr('customUI/customUI.xml', custom_ui_2007)
+                    zout.writestr('customUI/customUI14.xml', custom_ui_2010)
+
+                    # Ghi các file còn lại
+                    for item in zin.infolist():
+                        # Bỏ qua _rels/.rels (đã ghi ở trên)
+                        if item.filename == '_rels/.rels':
+                            continue
+                        # Bỏ qua fonts nhúng để tránh cảnh báo Font trên Mac
+                        if item.filename.startswith('ppt/fonts/'):
+                            continue
+                        # Bỏ qua customUI cũ trong file gốc
+                        if 'customUI' in item.filename:
+                            continue
+                        # Xóa embedded fonts trong presentation.xml
+                        if item.filename == 'ppt/presentation.xml':
+                            p_data = zin.read(item.filename).decode('utf-8')
+                            p_data = re.sub(r'<p:embeddedFontLst>.*?</p:embeddedFontLst>', '', p_data, flags=re.DOTALL | re.IGNORECASE)
+                            p_data = re.sub(r'<p:embeddedFontLst\b[^>]*/>', '', p_data, flags=re.IGNORECASE)
+                            zout.writestr(item, p_data.encode('utf-8'))
+                        # Xóa font relationships trong presentation.xml.rels
+                        elif item.filename == 'ppt/_rels/presentation.xml.rels':
+                            rels_str = zin.read(item.filename).decode('utf-8')
+                            rels_str = re.sub(r'<Relationship[^>]*relationships/font[^>]*/>', '', rels_str)
+                            zout.writestr(item, rels_str.encode('utf-8'))
                         else:
-                            zout.writestr('_rels/.rels', rels_data)
-                    elif rels_data:
-                        zout.writestr('_rels/.rels', rels_data)
+                            zout.writestr(item, zin.read(item.filename))
         except Exception as e:
-            # Fallback to original file content on error
+            # Fallback: trả về nội dung file gốc nếu có lỗi
             with open(input_path, 'rb') as f:
                 return f.read()
-            
+
         return out_buf.getvalue()
 
     def init_t1(self):

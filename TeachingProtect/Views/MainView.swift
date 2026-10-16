@@ -413,16 +413,16 @@ struct MainView: View {
         // customUI.xml - dùng cho PowerPoint 2007/2008, namespace chính thức 2006/01
         let customXml2007 = """
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="">
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
     <commands>
-        <command idMso="FileSave" onAction="" enabled="true"/>
+        <command idMso="FileSave" enabled="true"/>
         <command idMso="FileSaveAs" enabled="false"/>
         <command idMso="FileSaveAsMenu" enabled="false"/>
         <command idMso="FileSaveAsMac" enabled="false"/>
         <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
         <command idMso="FileSaveACopy" enabled="false"/>
-        <command idMso="FileSaveAsPicture" enabled="false"/>
         <command idMso="FileSaveCopyAs" enabled="false"/>
+        <command idMso="FileSaveAsPicture" enabled="false"/>
         <command idMso="PictureSaveAs" enabled="false"/>
         <command idMso="SaveMediaAs" enabled="false"/>
         <command idMso="Export" enabled="false"/>
@@ -437,13 +437,26 @@ struct MainView: View {
         <command idMso="ShareDocument" enabled="false"/>
         <command idMso="FileSendAsAttachment" enabled="false"/>
         <command idMso="FileSendAsPdf" enabled="false"/>
+        <command idMso="FileSendAsXps" enabled="false"/>
         <command idMso="FilePrint" enabled="false"/>
         <command idMso="FilePrintMac" enabled="false"/>
         <command idMso="FilePrintQuick" enabled="false"/>
         <command idMso="PrintPreviewAndPrint" enabled="false"/>
         <command idMso="ApplicationOptionsDialog" enabled="false"/>
         <command idMso="Duplicate" enabled="false"/>
+        <command idMso="FileDuplicate" enabled="false"/>
+        <command idMso="FileMove" enabled="false"/>
     </commands>
+    <ribbon>
+        <officeMenu>
+            <button idMso="FileSaveAs" visible="false"/>
+            <button idMso="FileSaveAsMenu" visible="false"/>
+            <button idMso="FilePrint" visible="false"/>
+            <button idMso="FilePrintMenu" visible="false"/>
+            <menu idMso="FileSendMenu" visible="false"/>
+            <button idMso="FilePublishToPdfOrXps" visible="false"/>
+        </officeMenu>
+    </ribbon>
 </customUI>
 """
         try? customXml2007.write(toFile: customUiDir + "/customUI.xml", atomically: true, encoding: .utf8)
@@ -451,16 +464,16 @@ struct MainView: View {
         // customUI14.xml - dùng cho Office 2010+ và PowerPoint for Mac hiện đại, namespace 2009/07
         let customXml2010 = """
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" onLoad="">
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
     <commands>
-        <command idMso="FileSave" onAction="" enabled="true"/>
+        <command idMso="FileSave" enabled="true"/>
         <command idMso="FileSaveAs" enabled="false"/>
         <command idMso="FileSaveAsMenu" enabled="false"/>
         <command idMso="FileSaveAsMac" enabled="false"/>
         <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
         <command idMso="FileSaveACopy" enabled="false"/>
-        <command idMso="FileSaveAsPicture" enabled="false"/>
         <command idMso="FileSaveCopyAs" enabled="false"/>
+        <command idMso="FileSaveAsPicture" enabled="false"/>
         <command idMso="PictureSaveAs" enabled="false"/>
         <command idMso="SaveMediaAs" enabled="false"/>
         <command idMso="Export" enabled="false"/>
@@ -475,12 +488,15 @@ struct MainView: View {
         <command idMso="ShareDocument" enabled="false"/>
         <command idMso="FileSendAsAttachment" enabled="false"/>
         <command idMso="FileSendAsPdf" enabled="false"/>
+        <command idMso="FileSendAsXps" enabled="false"/>
         <command idMso="FilePrint" enabled="false"/>
         <command idMso="FilePrintMac" enabled="false"/>
         <command idMso="FilePrintQuick" enabled="false"/>
         <command idMso="PrintPreviewAndPrint" enabled="false"/>
         <command idMso="ApplicationOptionsDialog" enabled="false"/>
         <command idMso="Duplicate" enabled="false"/>
+        <command idMso="FileDuplicate" enabled="false"/>
+        <command idMso="FileMove" enabled="false"/>
     </commands>
     <ribbon>
         <backstage>
@@ -531,13 +547,14 @@ struct MainView: View {
                         repeat with p in presentations
                             try
                                 set tmpName to (full name of p) as string
+                                set pName to (name of p) as string
                                 set pPath to tmpName
                                 if not (tmpName starts with "/" or tmpName starts with "~") then
                                     try
                                         set pPath to POSIX path of tmpName
                                     end try
                                 end if
-                                if pPath is "\(tempPptxPath.path)" then
+                                if (tmpName contains "\(sessionDir.lastPathComponent)" and pName is "\(tempPptxPath.lastPathComponent)") or pPath is "\(tempPptxPath.path)" or pPath is "\(tempPptxPath.resolvingSymlinksInPath().path)" then
                                     set isOpen to true
                                     exit repeat
                                 end if
@@ -568,8 +585,9 @@ struct MainView: View {
             while stillOpen {
                 self.closeIllegalWindows()
                 
-                if loopIndex % 10 == 0 {
-                    stillOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath)
+                // Quét diệt presentation clone mỗi 300ms (3 vòng lặp) thay vì 1 giây
+                if loopIndex % 3 == 0 {
+                    stillOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath, sessionDir: sessionDir)
                 }
                 
                 if !stillOpen {
@@ -600,9 +618,12 @@ struct MainView: View {
             }
             
             if FileManager.default.fileExists(atPath: renamedPptx.path) {
+                // Chạy zip từ trong sessionDir để chỉ cập nhật file bài giảng theo tên tương đối (originalName)
+                // Giữ nguyên 100% cấu trúc của archive baigiang.khoa mà không bị nhét thêm đường dẫn thư mục tuyệt đối
                 let task = Process()
                 task.launchPath = "/usr/bin/zip"
-                task.arguments = ["-q", "-j", tempZip.path, renamedPptx.path]
+                task.currentDirectoryPath = sessionDir.path
+                task.arguments = ["-q", "-u", tempZip.path, originalName]
                 task.launch()
                 task.waitUntilExit()
             }
@@ -654,180 +675,125 @@ struct MainView: View {
                 set appName to name of frontApp
                 if appName contains "PowerPoint" or appName contains "WPS" then
                     
-                    -- 0. Xử LÝ POPUP FONT (xuất hiện khi bấm Cmd+S trên Mac)
-                    -- Cần tự click "Don't Save Fonts" để lưu bình thường, không cho user nhấn "Save a Copy"
+                    -- 0. XỬ LÝ POPUP FONT (khi bấm Cmd+S trên Mac có thể hỏi nhúng phông)
+                    -- Tự click "Don't Save Fonts" để lưu bình thường về file tạm, không cho hiện dialog tạo bản sao
                     try
                         if exists (sheet 1 of front window of frontApp) then
                             set theSheet to sheet 1 of front window of frontApp
                             set isFontSheet to false
                             
-                            -- Kiểm tra tên sheet có liên quan đến Font không
                             try
-                                set sheetName to name of theSheet
-                                if sheetName contains "Font" or sheetName contains "Phông" or ¬
-                                   sheetName contains "font" then
-                                    set isFontSheet to true
-                                end if
+                                repeat with btn in (buttons of theSheet)
+                                    try
+                                        set btnTitle to title of btn
+                                        if btnTitle contains "Don't Save Fonts" or ¬
+                                           btnTitle contains "Don't Embed" or ¬
+                                           btnTitle contains "Không nhúng" or ¬
+                                           btnTitle contains "Không lưu" then
+                                            set isFontSheet to true
+                                            click btn
+                                            return "FONT_HANDLED"
+                                        end if
+                                    end try
+                                end repeat
                             end try
                             
-                            -- Kiểm tra thêm qua nút bấm trong sheet
+                            -- 1. BẤT KỲ SHEET NÀO KHÁC (Save As / Export / Print / Move To / Duplicate / Share...)
+                            -- Trong phiên học, ngoài Font sheet ra, mọi Sheet khác đều là hành vi lưu/xuất file trái phép
                             if not isFontSheet then
-                                try
-                                    repeat with btn in (buttons of theSheet)
-                                        try
-                                            set btnTitle to title of btn
-                                            if btnTitle contains "Don't Save Fonts" or ¬
-                                               btnTitle contains "Don't Embed" or ¬
-                                               btnTitle contains "Không nhúng" or ¬
-                                               btnTitle contains "Save a Copy" or ¬
-                                               btnTitle contains "Lưu bản sao" then
-                                                set isFontSheet to true
-                                                exit repeat
-                                            end if
-                                        end try
-                                    end repeat
-                                end try
-                            end if
-                            
-                            if isFontSheet then
-                                -- Tự click "Don't Save Fonts" (lưu về file tạm, không tạo file mới)
-                                set clicked to false
-                                try
-                                    click button "Don't Save Fonts" of theSheet
-                                    set clicked to true
-                                end try
-                                if not clicked then
-                                    try
-                                        click button "Don't Embed Fonts" of theSheet
-                                        set clicked to true
-                                    end try
-                                end if
-                                if not clicked then
-                                    try
-                                        click button "Không nhúng phông" of theSheet
-                                        set clicked to true
-                                    end try
-                                end if
-                                if not clicked then
-                                    try
-                                        click button "Không lưu phông" of theSheet
-                                        set clicked to true
-                                    end try
-                                end if
-                                -- Nếu không tìm được nút phù hợp thì đóng by ESC (an toàn hơn là cứ để user click Save a Copy)
-                                if not clicked then
-                                    key code 53
-                                end if
-                                return "FONT_DIALOG_HANDLED"
-                            end if
-                        end if
-                    end try
-                    
-                    -- 1. KIỂM TRA SHEET (Popup trượt xuống từ title bar — Save As / Export / Print)
-                    try
-                        if exists (sheet 1 of front window of frontApp) then
-                            set theSheet to sheet 1 of front window of frontApp
-                            set isIllegal to false
-                            
-                            set sheetName to ""
-                            try
-                                set sheetName to name of theSheet
-                            end try
-                            if sheetName is not missing value then
-                                if sheetName contains "Save As" or sheetName contains "Save As…" or ¬
-                                   sheetName contains "Lưu dưới dạng" or ¬
-                                   sheetName contains "Save a Copy" or sheetName contains "Lưu bản sao" or ¬
-                                   sheetName contains "Save with" or sheetName contains "Duplicate" or ¬
-                                   sheetName contains "Export" or sheetName contains "Xuất" or ¬
-                                   sheetName contains "Print" or sheetName contains "In " or sheetName is "In" or ¬
-                                   sheetName contains "Publish" or sheetName contains "Phát hành" or ¬
-                                   sheetName contains "Bản sao" or sheetName contains "Copy" then
-                                    set isIllegal to true
-                                end if
-                            end if
-                            
-                            if not isIllegal then
-                                try
-                                    repeat with elem in (UI elements of theSheet)
-                                        try
-                                            set elName to (name of elem) as string
-                                            if elName contains "Save As" or elName contains "Lưu dưới dạng" or ¬
-                                               elName contains "Save a Copy" or elName contains "Lưu bản sao" or ¬
-                                               elName contains "Export As" or elName contains "Xuất dưới dạng" or ¬
-                                               elName contains "File Format" or elName contains "Định dạng tệp" or ¬
-                                               elName contains "Format:" or elName contains "Định dạng:" or ¬
-                                               elName contains "Where:" or elName contains "Vị trí:" or ¬
-                                               elName contains "Save As…" or elName contains "Save…" then
-                                                set isIllegal to true
-                                                exit repeat
-                                            end if
-                                        end try
-                                    end repeat
-                                end try
-                            end if
-                            
-                            if isIllegal then
+                                set cancelled to false
                                 try
                                     click button "Cancel" of theSheet
+                                    set cancelled to true
                                 end try
-                                try
-                                    click button "Hủy" of theSheet
-                                end try
-                                try
-                                    click button "Don't Save" of theSheet
-                                end try
-                                delay 0.05
-                                key code 53
+                                if not cancelled then
+                                    try
+                                        click button "Hủy" of theSheet
+                                        set cancelled to true
+                                    end try
+                                end if
+                                if not cancelled then
+                                    try
+                                        click button "Don't Save" of theSheet
+                                        set cancelled to true
+                                    end try
+                                end if
+                                delay 0.02
+                                key code 53 -- Phím ESCape
+                                return "SHEET_CLOSED"
                             end if
                         end if
                     end try
                     
-                    -- 2. KIỂM TRA CỬA SỔ RIÊNG BIỆT (Save As / Print / Export / NSSavePanel)
+                    -- 2. KIỂM TRA CỬA SỔ PHỤ / MODAL WINDOWS (Save As dạng Window riêng, Print, Export, Move To, Share)
                     try
-                        if exists (front window of frontApp) then
-                            set winName to name of front window of frontApp
-                            if winName is not missing value then
+                        repeat with w in (windows of frontApp)
+                            try
+                                set wName to ""
+                                try
+                                    set wName to (name of w) as string
+                                end try
                                 set isIllegalWin to false
-                                if winName contains "Save As" or winName contains "Save As…" then set isIllegalWin to true
-                                if winName contains "Lưu dưới dạng" then set isIllegalWin to true
-                                if winName contains "Save a Copy" or winName contains "Lưu bản sao" then set isIllegalWin to true
-                                if winName contains "Save with" or winName contains "Phông chữ" then set isIllegalWin to true
-                                if winName contains "Duplicate" or winName contains "Bản sao" then set isIllegalWin to true
-                                if winName is "Print" or winName is "In" or winName contains "Print…" then set isIllegalWin to true
-                                if winName contains "Export" or winName contains "Xuất" then set isIllegalWin to true
-                                if winName contains "Publish" or winName contains "Phát hành" then set isIllegalWin to true
-                                -- NSSavePanel thường có tên là chuỗi rỗng, nhưng chứa button Save/Lưu
-                                if winName is "" or winName is " " then
+                                
+                                if wName is not missing value and wName is not "" then
+                                    if wName contains "Save" or wName contains "Lưu" or ¬
+                                       wName contains "Export" or wName contains "Xuất" or ¬
+                                       wName contains "Print" or wName contains "In " or wName is "In" or ¬
+                                       wName contains "Duplicate" or wName contains "Bản sao" or ¬
+                                       wName contains "Move" or wName contains "Di chuyển" or ¬
+                                       wName contains "Share" or wName contains "Chia sẻ" or ¬
+                                       wName contains "Publish" or wName contains "Phát hành" then
+                                        set isIllegalWin to true
+                                    end if
+                                end if
+                                
+                                -- Kiểm tra nếu cửa sổ không có tên nhưng có nút Save hoặc Cancel (NSSavePanel độc lập)
+                                if not isIllegalWin and (wName is "" or wName is " ") then
                                     try
-                                        set hasSaveBtn to false
-                                        repeat with btn in (buttons of front window of frontApp)
+                                        repeat with btn in (buttons of w)
                                             try
-                                                set btnTitle to (title of btn) as string
-                                                if btnTitle is "Save" or btnTitle is "Lưu" then
-                                                    set hasSaveBtn to true
+                                                set bTitle to (title of btn) as string
+                                                if bTitle is "Save" or bTitle is "Lưu" or bTitle is "Export" or bTitle is "Xuất" then
+                                                    set isIllegalWin to true
                                                     exit repeat
                                                 end if
                                             end try
                                         end repeat
-                                        if hasSaveBtn then set isIllegalWin to true
                                     end try
                                 end if
                                 
                                 if isIllegalWin then
                                     try
-                                        click button "Cancel" of front window of frontApp
+                                        click button "Cancel" of w
                                     end try
                                     try
-                                        click button "Hủy" of front window of frontApp
+                                        click button "Hủy" of w
                                     end try
-                                    delay 0.05
+                                    delay 0.02
                                     key code 53
                                 end if
-                            end if
-                        end if
+                            end try
+                        end repeat
                     end try
                     
                 end if
+                
+                -- 3. ĐÓNG CỬA SỔ FINDER NẾU CỐ TÌNH MỞ VÀO THƯ MỤC CACHE BẢO MẬT
+                try
+                    if exists (application process "Finder") then
+                        tell application "Finder"
+                            repeat with fw in (every window)
+                                try
+                                    set fTarget to (target of fw) as string
+                                    if fTarget contains ".SlideLock_Cache" then
+                                        close fw
+                                    end if
+                                end try
+                            end repeat
+                        end tell
+                    end if
+                end try
+                
             end tell
             return "SUCCESS"
         on error errMsg number errNum
@@ -845,7 +811,7 @@ struct MainView: View {
         }
     }
     
-    private func scanAndKillClones(tempPptxPath: URL) -> Bool {
+    private func scanAndKillClones(tempPptxPath: URL, sessionDir: URL) -> Bool {
         let protectScript = """
         try
             tell application "Microsoft PowerPoint"
@@ -855,30 +821,32 @@ struct MainView: View {
                 try
                     repeat with p in presentations
                         set isOriginal to false
-                        set pPath to ""
+                        set pFullName to ""
+                        set pName to ""
                         
                         try
-                            set tmpName to (full name of p) as string
-                            if tmpName is not "" then
-                                set pPath to tmpName
-                                if not (tmpName starts with "/" or tmpName starts with "~") then
-                                    try
-                                        set pPath to POSIX path of tmpName
-                                    end try
-                                end if
-                                
-                                if pPath is "\(tempPptxPath.path)" then
-                                    set isOriginal to true
-                                    set originalOpen to true
-                                end if
+                            set pName to (name of p) as string
+                        end try
+                        try
+                            set pFullName to (full name of p) as string
+                        end try
+                        
+                        try
+                            -- Nhận diện presentation bài giảng chính xác theo UUID session hoặc đường dẫn POSIX
+                            if (pFullName contains "\(sessionDir.lastPathComponent)" and pName is "\(tempPptxPath.lastPathComponent)") or ¬
+                               pFullName is "\(tempPptxPath.path)" or ¬
+                               pFullName is "\(tempPptxPath.resolvingSymlinksInPath().path)" then
+                                set isOriginal to true
+                                set originalOpen to true
                             end if
                         end try
                         
+                        -- Mọi presentation khác không phải bài giảng gốc đều bị đóng không lưu ngay lập tức
                         if not isOriginal then
                             try
                                 close p saving no
-                                if pPath is not "" and pPath is not "\(tempPptxPath.path)" then
-                                    copy pPath to end of clones
+                                if pFullName is not "" and not (pFullName contains "\(sessionDir.lastPathComponent)") then
+                                    copy pFullName to end of clones
                                 end if
                             end try
                         end if
