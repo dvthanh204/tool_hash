@@ -13,9 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         # Kiểm tra tính tương thích chéo trên nhiều thế hệ macOS và CPU
-        # macos-13: Đại diện cho dòng máy Intel
-        # macos-14, macos-15: Đại diện cho dòng Apple Silicon (M1, M2, M3...)
-        os: [macos-13, macos-14, macos-15]
+        # macos-14, macos-15: Đại diện cho dòng Apple Silicon (M1, M2, M3...) và biên dịch Universal Binary cho cả Intel x86_64
+        os: [macos-14, macos-15]
 
     steps:
     - uses: actions/checkout@v4
