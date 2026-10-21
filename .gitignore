@@ -7,3 +7,5 @@ test/
 *.zip
 *.log
 .DS_Store
+*.rar
+deploy/

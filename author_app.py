@@ -84,6 +84,7 @@ class AuthorApp(ctk.CTk):
         custom_ui_2007 = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
   <commands>
+    <command idMso="FileSave" enabled="true"/>
     <command idMso="FileSaveAs" enabled="false"/>
     <command idMso="FileSaveAsMenu" enabled="false"/>
     <command idMso="FileSaveAsMac" enabled="false"/>
@@ -131,6 +132,7 @@ class AuthorApp(ctk.CTk):
         custom_ui_2010 = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
   <commands>
+    <command idMso="FileSave" enabled="true"/>
     <command idMso="FileSaveAs" enabled="false"/>
     <command idMso="FileSaveAsMenu" enabled="false"/>
     <command idMso="FileSaveAsMac" enabled="false"/>

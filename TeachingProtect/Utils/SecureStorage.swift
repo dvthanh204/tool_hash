@@ -42,7 +42,28 @@ public struct SecureStorage {
         return sessionDir
     }
     
+    public static func closeAllPresentationsInCache() {
+        let script = """
+        try
+            tell application "Microsoft PowerPoint"
+                repeat with p in presentations
+                    try
+                        set fName to (full name of p) as string
+                        if fName contains ".SlideLock_Cache" then
+                            close p saving no
+                        end if
+                    end try
+                end repeat
+            end tell
+        end try
+        """
+        if let scriptObj = NSAppleScript(source: script) {
+            scriptObj.executeAndReturnError(nil)
+        }
+    }
+    
     public static func cleanupAll() {
+        closeAllPresentationsInCache()
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(".SlideLock_Cache")
         try? FileManager.default.removeItem(at: dir)
         
