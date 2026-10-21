@@ -218,11 +218,15 @@ class AuthorApp(ctk.CTk):
                         # Bỏ qua customUI cũ trong file gốc
                         if 'customUI' in item.filename:
                             continue
-                        # Xóa embedded fonts trong presentation.xml
+                        # Xóa embedded fonts và triệt tiêu cờ nhúng phông trong presentation.xml
                         if item.filename == 'ppt/presentation.xml':
                             p_data = zin.read(item.filename).decode('utf-8')
                             p_data = re.sub(r'<p:embeddedFontLst>.*?</p:embeddedFontLst>', '', p_data, flags=re.DOTALL | re.IGNORECASE)
                             p_data = re.sub(r'<p:embeddedFontLst\b[^>]*/>', '', p_data, flags=re.IGNORECASE)
+                            p_data = re.sub(r'<p:embedTrueTypeFonts\b[^>]*>.*?</p:embedTrueTypeFonts>', '<p:embedTrueTypeFonts val="0"/>', p_data, flags=re.DOTALL | re.IGNORECASE)
+                            p_data = re.sub(r'<p:embedTrueTypeFonts\b[^>]*/>', '<p:embedTrueTypeFonts val="0"/>', p_data, flags=re.IGNORECASE)
+                            p_data = re.sub(r'<p:saveSubsetFonts\b[^>]*>.*?</p:saveSubsetFonts>', '', p_data, flags=re.DOTALL | re.IGNORECASE)
+                            p_data = re.sub(r'<p:saveSubsetFonts\b[^>]*/>', '', p_data, flags=re.IGNORECASE)
                             zout.writestr(item, p_data.encode('utf-8'))
                         # Xóa font relationships trong presentation.xml.rels
                         elif item.filename == 'ppt/_rels/presentation.xml.rels':

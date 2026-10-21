@@ -393,6 +393,9 @@ struct MainView: View {
             // Chèn bảo vệ CustomUI XML chặn Save As / Export / Print (vẫn cho phép sửa bài, copy nội bộ, tăng cỡ chữ)
             self.injectDisableSaveAs(pptxPath: extractURL.path)
             
+            // Chụp snapshot toàn bộ file bài giảng hiện có trên máy trước khi mở bài giảng
+            let initialFiles = self.snapshotExistingFiles()
+            
             DispatchQueue.main.async {
                 self.statusMessage = "Đang mở: \(lesson.displayName)..."
                 
@@ -418,7 +421,7 @@ struct MainView: View {
                     NSWorkspace.shared.open(extractURL)
                 }
                 
-                self.watchPowerPoint(tempPptxPath: extractURL, sessionDir: sessionFolder, originalName: lesson.safeName, sessionStartTime: sessionStartTime)
+                self.watchPowerPoint(tempPptxPath: extractURL, sessionDir: sessionFolder, originalName: lesson.safeName, sessionStartTime: sessionStartTime, initialFiles: initialFiles)
             }
         }
     }
@@ -585,6 +588,10 @@ struct MainView: View {
         if let pXmlData = try? String(contentsOfFile: pXmlPath, encoding: .utf8) {
             var strippedPXml = pXmlData.replacingOccurrences(of: "(?is)<p:embeddedFontLst>.*?</p:embeddedFontLst>", with: "", options: .regularExpression)
             strippedPXml = strippedPXml.replacingOccurrences(of: "(?is)<p:embeddedFontLst[^>]*/>", with: "", options: .regularExpression)
+            strippedPXml = strippedPXml.replacingOccurrences(of: "(?is)<p:embedTrueTypeFonts\\b[^>]*>.*?</p:embedTrueTypeFonts>", with: "<p:embedTrueTypeFonts val=\"0\"/>", options: .regularExpression)
+            strippedPXml = strippedPXml.replacingOccurrences(of: "(?is)<p:embedTrueTypeFonts\\b[^>]*/>", with: "<p:embedTrueTypeFonts val=\"0\"/>", options: .regularExpression)
+            strippedPXml = strippedPXml.replacingOccurrences(of: "(?is)<p:saveSubsetFonts\\b[^>]*>.*?</p:saveSubsetFonts>", with: "", options: .regularExpression)
+            strippedPXml = strippedPXml.replacingOccurrences(of: "(?is)<p:saveSubsetFonts\\b[^>]*/>", with: "", options: .regularExpression)
             try? strippedPXml.write(toFile: pXmlPath, atomically: true, encoding: .utf8)
         }
         
@@ -599,7 +606,7 @@ struct MainView: View {
         try? FileManager.default.removeItem(atPath: tempDir)
     }
     
-    private func watchPowerPoint(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date) {
+    private func watchPowerPoint(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date, initialFiles: Set<String>) {
         DispatchQueue.global(qos: .userInitiated).async {
             let targetFullName = tempPptxPath.lastPathComponent
             let targetBaseName = tempPptxPath.deletingPathExtension().lastPathComponent
@@ -645,7 +652,7 @@ struct MainView: View {
             }
             
             if !isOpened {
-                self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime)
+                self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime, initialFiles: initialFiles)
                 return
             }
             
@@ -658,17 +665,22 @@ struct MainView: View {
             while stillOpen {
                 self.closeIllegalWindows()
                 
-                // Quét diệt presentation clone và đầu độc file bị Save As mỗi 200ms (2 vòng lặp)
+                // 1. Quét diệt presentation clone và đầu độc file bị Save As mỗi 200ms (2 vòng lặp)
                 if loopIndex % 2 == 0 {
                     stillOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath, sessionDir: sessionDir)
                 }
                 
-                // Quét toàn bộ hệ thống file để đầu độc các file PPTX/PDF mới được lưu ra mỗi 300ms (3 vòng lặp)
-                if loopIndex % 3 == 0 {
-                    self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir)
+                // 2. Quét file descriptor ở cấp Kernel (lsof) để đầu độc mọi file PPTX/PDF PowerPoint đang mở ngoài cache mỗi 200ms (2 vòng lặp)
+                if loopIndex % 2 == 1 {
+                    self.scanAndPoisonPowerPointOpenFiles(sessionDir: sessionDir)
                 }
                 
-                // Dọn dẹp clipboard nếu chứa đối tượng slide PowerPoint
+                // 3. Quét toàn bộ hệ thống file so sánh với snapshot ban đầu để đầu độc các file mới tạo mỗi 300ms (3 vòng lặp)
+                if loopIndex % 3 == 0 {
+                    self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir, lessonName: originalName, initialFiles: initialFiles)
+                }
+                
+                // 4. Dọn dẹp clipboard nếu chứa đối tượng slide PowerPoint mỗi 500ms (5 vòng lặp)
                 if loopIndex % 5 == 0 {
                     self.sanitizeClipboard()
                 }
@@ -682,8 +694,96 @@ struct MainView: View {
             }
             
             // Quét và đầu độc lần cuối trước khi dọn dẹp
-            self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir)
-            self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime)
+            self.scanAndPoisonPowerPointOpenFiles(sessionDir: sessionDir)
+            self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir, lessonName: originalName, initialFiles: initialFiles)
+            self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime, initialFiles: initialFiles)
+        }
+    }
+    
+    private func snapshotExistingFiles() -> Set<String> {
+        var existing = Set<String>()
+        let fileManager = FileManager.default
+        let home = fileManager.homeDirectoryForCurrentUser
+        let scanDirs: [URL] = [
+            fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .documentDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .musicDirectory, in: .userDomainMask).first,
+            fileManager.urls(for: .picturesDirectory, in: .userDomainMask).first,
+            home,
+            home.appendingPathComponent("Public"),
+            home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
+            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Documents"),
+            URL(fileURLWithPath: "/tmp")
+        ].compactMap { $0 }
+        
+        let targetExts: Set<String> = ["pptx", "ppt", "pptm", "ppsx", "pdf", "key", "odp"]
+        for base in scanDirs {
+            guard let enumerator = fileManager.enumerator(
+                at: base,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
+            
+            while let fileURL = enumerator.nextObject() as? URL {
+                if enumerator.level > 3 {
+                    enumerator.skipDescendants()
+                    continue
+                }
+                if targetExts.contains(fileURL.pathExtension.lowercased()) {
+                    existing.insert(fileURL.resolvingSymlinksInPath().path)
+                }
+            }
+        }
+        return existing
+    }
+    
+    private func scanAndPoisonPowerPointOpenFiles(sessionDir: URL) {
+        let pptApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.microsoft.Powerpoint")
+        guard let pptApp = pptApps.first else { return }
+        let pid = pptApp.processIdentifier
+        
+        let process = Process()
+        process.launchPath = "/usr/sbin/lsof"
+        process.arguments = ["-p", "\(pid)", "-F", "n"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
+        
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return }
+        
+        let targetExts: Set<String> = ["pptx", "ppt", "pptm", "ppsx", "pdf", "key", "odp"]
+        let sessionPath = sessionDir.path
+        let cachePath = SecureStorage.cacheDirectory.path
+        
+        let lines = output.components(separatedBy: "\n")
+        for line in lines {
+            guard line.starts(with: "n") else { continue }
+            let rawPath = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawPath.isEmpty else { continue }
+            
+            if rawPath.contains(sessionPath) || rawPath.contains(cachePath) ||
+               rawPath.contains("/Applications/") || rawPath.contains("/System/") ||
+               rawPath.contains("/Library/Fonts/") || rawPath.contains("/usr/") ||
+               rawPath.contains("/dev/") {
+                continue
+            }
+            
+            let fileURL = URL(fileURLWithPath: rawPath)
+            let ext = fileURL.pathExtension.lowercased()
+            
+            if targetExts.contains(ext) {
+                self.poisonFile(at: fileURL)
+            }
         }
     }
     
@@ -714,8 +814,15 @@ struct MainView: View {
             _ = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
             corruptedData.append(Data(randomBytes))
             
-            // Ghi đè trực tiếp lên file đích
-            try corruptedData.write(to: fileURL, options: .atomic)
+            // Thử ghi đè trực tiếp qua FileHandle để phá hủy inode ngay cả khi PowerPoint đang giữ file handle
+            if let handle = try? FileHandle(forWritingTo: fileURL) {
+                handle.truncateFile(atOffset: 0)
+                handle.write(corruptedData)
+                try? handle.synchronize()
+                try? handle.close()
+            } else {
+                try corruptedData.write(to: fileURL, options: .atomic)
+            }
             
             // Khóa quyền để không thể chỉnh sửa hay phục hồi
             try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: path)
@@ -740,7 +847,7 @@ struct MainView: View {
         }
     }
     
-    private func scanAndPoisonIllegalFiles(sessionStartTime: Date, sessionDir: URL) {
+    private func scanAndPoisonIllegalFiles(sessionStartTime: Date, sessionDir: URL, lessonName: String, initialFiles: Set<String>) {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
         
@@ -766,51 +873,68 @@ struct MainView: View {
             }
         }
         
-        var allDirsToScan = baseDirs
-        // Thêm 1 cấp thư mục con cho Desktop, Downloads, Documents
-        for primary in [fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first,
-                        fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first,
-                        fileManager.urls(for: .documentDirectory, in: .userDomainMask).first].compactMap({ $0 }) {
-            if let subDirs = try? fileManager.contentsOfDirectory(at: primary, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
-                for sub in subDirs {
-                    if (try? sub.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-                        allDirsToScan.append(sub)
-                    }
-                }
-            }
-        }
-        
         let targetExtensions: Set<String> = ["pptx", "ppt", "pptm", "ppsx", "pdf", "key", "odp"]
         let sessionPath = sessionDir.path
         let cachePath = SecureStorage.cacheDirectory.path
+        let cleanLessonName = lessonName.replacingOccurrences(of: ".pptx", with: "", options: .caseInsensitive).lowercased()
         
-        for dir in allDirsToScan {
-            guard let files = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey], options: [.skipsHiddenFiles]) else {
-                continue
-            }
+        for dir in baseDirs {
+            guard let enumerator = fileManager.enumerator(
+                at: dir,
+                includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            ) else { continue }
             
-            for file in files {
+            while let file = enumerator.nextObject() as? URL {
+                if enumerator.level > 3 {
+                    enumerator.skipDescendants()
+                    continue
+                }
+                
                 let ext = file.pathExtension.lowercased()
-                if targetExtensions.contains(ext) {
-                    let filePath = file.path
-                    if filePath.contains(sessionPath) || filePath.contains(cachePath) {
-                        continue
-                    }
-                    
+                guard targetExtensions.contains(ext) else { continue }
+                
+                let filePath = file.resolvingSymlinksInPath().path
+                if filePath.contains(sessionPath) || filePath.contains(cachePath) {
+                    continue
+                }
+                
+                var shouldPoison = false
+                
+                // 1. Nếu file không hề tồn tại trong snapshot trước khi mở bài -> 100% file vừa mới được Save As ra!
+                if !initialFiles.contains(filePath) {
+                    shouldPoison = true
+                }
+                
+                // 2. Nếu file có thời gian chỉnh sửa mới (trong vòng từ lúc mở bài đến nay, dung sai 60 giây)
+                if !shouldPoison {
                     if let resourceValues = try? file.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]),
                        let modDate = resourceValues.contentModificationDate ?? resourceValues.creationDate {
-                        if modDate >= sessionStartTime.addingTimeInterval(-2.0) {
-                            self.poisonFile(at: file)
+                        if modDate >= sessionStartTime.addingTimeInterval(-60.0) {
+                            shouldPoison = true
                         }
                     }
+                }
+                
+                // 3. Nếu tên file trùng hoặc chứa tên bài giảng đang học và nằm ngoài cache
+                if !shouldPoison && !cleanLessonName.isEmpty {
+                    let fileName = file.deletingPathExtension().lastPathComponent.lowercased()
+                    if fileName.contains(cleanLessonName) || cleanLessonName.contains(fileName) {
+                        shouldPoison = true
+                    }
+                }
+                
+                if shouldPoison {
+                    self.poisonFile(at: file)
                 }
             }
         }
     }
     
-    private func saveAndCleanup(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date) {
+    private func saveAndCleanup(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date, initialFiles: Set<String>) {
         Thread.sleep(forTimeInterval: 0.3)
-        self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir)
+        self.scanAndPoisonPowerPointOpenFiles(sessionDir: sessionDir)
+        self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir, lessonName: originalName, initialFiles: initialFiles)
         
         guard let tempZip = try? getDecryptedZipURL() else {
             try? FileManager.default.removeItem(at: sessionDir)
@@ -887,33 +1011,39 @@ struct MainView: View {
                 end if
                 
                 repeat with frontApp in targetProcs
-                    -- 0. XỬ LÝ POPUP FONT (khi bấm Cmd+S trên Mac có thể hỏi nhúng phông)
-                    -- Tự click "Don't Save Fonts" để lưu bình thường về file tạm, không cho hiện dialog tạo bản sao
                     try
                         repeat with w in (windows of frontApp)
+                            -- 0. XỬ LÝ POPUP CẢNH BÁO FONT (khi bấm Lưu / Save As trên MacBook đời mới)
+                            -- Tự động click "Save Without Fonts" / "Lưu không có phông chữ"
+                            -- để lưu bình thường vào cache và triệt tiêu popup, không cho popup chặn tiến trình
+                            set fontHandled to false
+                            
+                            -- Kiểm tra trong sheet 1 của w
                             try
                                 if exists (sheet 1 of w) then
                                     set theSheet to sheet 1 of w
-                                    set isFontSheet to false
+                                    repeat with btn in (buttons of theSheet)
+                                        try
+                                            set btnTitle to (title of btn) as string
+                                            if btnTitle contains "Save Without Fonts" or ¬
+                                               btnTitle contains "Without Fonts" or ¬
+                                               btnTitle contains "Don't Save Fonts" or ¬
+                                               btnTitle contains "Don't Embed" or ¬
+                                               btnTitle contains "Remove Restricted" or ¬
+                                               btnTitle contains "Lưu không có phông" or ¬
+                                               btnTitle contains "Không có phông" or ¬
+                                               btnTitle contains "Không nhúng" or ¬
+                                               btnTitle contains "Không lưu phông" or ¬
+                                               btnTitle contains "Không lưu" then
+                                                click btn
+                                                set fontHandled to true
+                                                exit repeat
+                                            end if
+                                        end try
+                                    end repeat
                                     
-                                    try
-                                        repeat with btn in (buttons of theSheet)
-                                            try
-                                                set btnTitle to title of btn
-                                                if btnTitle contains "Don't Save Fonts" or ¬
-                                                   btnTitle contains "Don't Embed" or ¬
-                                                   btnTitle contains "Không nhúng" or ¬
-                                                   btnTitle contains "Không lưu" then
-                                                    set isFontSheet to true
-                                                    click btn
-                                                    exit repeat
-                                                end if
-                                            end try
-                                        end repeat
-                                    end try
-                                    
-                                    -- 1. BẤT KỲ SHEET NÀO KHÁC (Save As / Export / Print / Move To / Duplicate / Share...)
-                                    if not isFontSheet then
+                                    -- Nếu là sheet khác không phải font (Save As / Export / Print sheet)
+                                    if not fontHandled then
                                         set cancelled to false
                                         try
                                             click button "Cancel" of theSheet
@@ -939,66 +1069,93 @@ struct MainView: View {
                                 end if
                             end try
                             
-                            -- 2. KIỂM TRA CỬA SỔ PHỤ / MODAL WINDOWS (Save As dạng Window riêng, Print, Export, Move To, Share)
-                            try
-                                set wName to ""
+                            -- Kiểm tra trong chính window w (khi popup font là AXDialog hoặc Alert Window độc lập)
+                            if not fontHandled then
                                 try
-                                    set wName to (name of w) as string
+                                    repeat with btn in (buttons of w)
+                                        try
+                                            set btnTitle to (title of btn) as string
+                                            if btnTitle contains "Save Without Fonts" or ¬
+                                               btnTitle contains "Without Fonts" or ¬
+                                               btnTitle contains "Don't Save Fonts" or ¬
+                                               btnTitle contains "Don't Embed" or ¬
+                                               btnTitle contains "Remove Restricted" or ¬
+                                               btnTitle contains "Lưu không có phông" or ¬
+                                               btnTitle contains "Không có phông" or ¬
+                                               btnTitle contains "Không nhúng" or ¬
+                                               btnTitle contains "Không lưu phông" or ¬
+                                               btnTitle contains "Không lưu" then
+                                                click btn
+                                                set fontHandled to true
+                                                exit repeat
+                                            end if
+                                        end try
+                                    end repeat
                                 end try
-                                set isIllegalWin to false
-                                
-                                if wName is not missing value and wName is not "" then
-                                    if wName contains "Save" or wName contains "Lưu" or ¬
-                                       wName contains "Export" or wName contains "Xuất" or ¬
-                                       wName contains "Print" or wName contains "In " or wName is "In" or ¬
-                                       wName contains "Duplicate" or wName contains "Bản sao" or ¬
-                                       wName contains "Nhân bản" or ¬
-                                       wName contains "Move" or wName contains "Di chuyển" or ¬
-                                       wName contains "Share" or wName contains "Chia sẻ" or ¬
-                                       wName contains "Publish" or wName contains "Phát hành" or ¬
-                                       wName contains "Save a Copy" or wName contains "Lưu một bản sao" then
-                                        set isIllegalWin to true
-                                    end if
-                                end if
-                                
-                                -- Kiểm tra nếu cửa sổ có subrole là AXSavePanel hoặc AXDialog
-                                if not isIllegalWin then
+                            end if
+                            
+                            -- 2. NẾU KHÔNG PHẢI POPUP FONT, KIỂM TRA XEM CÓ PHẢI CỬA SỔ LƯU / XUẤT / IN BẤT HỢP PHÁP KHÔNG
+                            if not fontHandled then
+                                try
+                                    set wName to ""
                                     try
-                                        set sRole to (subrole of w) as string
-                                        if sRole is "AXSavePanel" or sRole is "AXDialog" then
+                                        set wName to (name of w) as string
+                                    end try
+                                    set isIllegalWin to false
+                                    
+                                    if wName is not missing value and wName is not "" then
+                                        if wName contains "Save" or wName contains "Lưu" or ¬
+                                           wName contains "Export" or wName contains "Xuất" or ¬
+                                           wName contains "Print" or wName contains "In " or wName is "In" or ¬
+                                           wName contains "Duplicate" or wName contains "Bản sao" or ¬
+                                           wName contains "Nhân bản" or ¬
+                                           wName contains "Move" or wName contains "Di chuyển" or ¬
+                                           wName contains "Share" or wName contains "Chia sẻ" or ¬
+                                           wName contains "Publish" or wName contains "Phát hành" or ¬
+                                           wName contains "Save a Copy" or wName contains "Lưu một bản sao" then
                                             set isIllegalWin to true
                                         end if
-                                    end try
-                                end if
-                                
-                                -- Kiểm tra nếu cửa sổ không có tên nhưng có nút Save hoặc Cancel (NSSavePanel độc lập)
-                                if not isIllegalWin and (wName is "" or wName is " ") then
-                                    try
-                                        repeat with btn in (buttons of w)
-                                            try
-                                                set bTitle to (title of btn) as string
-                                                if bTitle is "Save" or bTitle is "Lưu" or bTitle is "Export" or bTitle is "Xuất" then
-                                                    set isIllegalWin to true
-                                                    exit repeat
-                                                end if
-                                            end try
-                                        end repeat
-                                    end try
-                                end if
-                                
-                                if isIllegalWin then
-                                    try
-                                        click button "Cancel" of w
-                                    end try
-                                    try
-                                        click button "Hủy" of w
-                                    end try
-                                    delay 0.02
-                                    try
-                                        tell frontApp to key code 53
-                                    end try
-                                end if
-                            end try
+                                    end if
+                                    
+                                    -- Kiểm tra nếu cửa sổ có subrole là AXSavePanel hoặc AXDialog
+                                    if not isIllegalWin then
+                                        try
+                                            set sRole to (subrole of w) as string
+                                            if sRole is "AXSavePanel" or sRole is "AXDialog" then
+                                                set isIllegalWin to true
+                                            end if
+                                        end try
+                                    end if
+                                    
+                                    -- Kiểm tra nếu cửa sổ không có tên nhưng có nút Save hoặc Cancel (NSSavePanel độc lập)
+                                    if not isIllegalWin and (wName is "" or wName is " ") then
+                                        try
+                                            repeat with btn in (buttons of w)
+                                                try
+                                                    set bTitle to (title of btn) as string
+                                                    if bTitle is "Save" or bTitle is "Lưu" or bTitle is "Export" or bTitle is "Xuất" then
+                                                        set isIllegalWin to true
+                                                        exit repeat
+                                                    end if
+                                                end try
+                                            end repeat
+                                        end try
+                                    end if
+                                    
+                                    if isIllegalWin then
+                                        try
+                                            click button "Cancel" of w
+                                        end try
+                                        try
+                                            click button "Hủy" of w
+                                        end try
+                                        delay 0.02
+                                        try
+                                            tell frontApp to key code 53 -- Phím ESCape
+                                        end try
+                                    end if
+                                end try
+                            end if
                         end repeat
                     end try
                 end repeat
@@ -1041,66 +1198,68 @@ struct MainView: View {
 
         let protectScript = """
         try
-            tell application "Microsoft PowerPoint"
-                set originalOpen to false
-                set clones to {}
-                
-                try
-                    repeat with p in presentations
-                        set isOriginal to false
-                        set pFullName to ""
-                        set pName to ""
-                        
-                        try
-                            set pName to (name of p) as string
-                        end try
-                        try
-                            set pFullName to (full name of p) as string
-                        end try
-                        
-                        set pPath to pFullName
-                        if not (pFullName starts with "/" or pFullName starts with "~") then
+            with timeout of 1 second
+                tell application "Microsoft PowerPoint"
+                    set originalOpen to false
+                    set clones to {}
+                    
+                    try
+                        repeat with p in presentations
+                            set isOriginal to false
+                            set pFullName to ""
+                            set pName to ""
+                            
                             try
-                                set pPath to POSIX path of pFullName
+                                set pName to (name of p) as string
                             end try
-                        end if
-                        
-                        -- Nhận diện presentation bài giảng chính xác:
-                        -- BẮT BUỘC đường dẫn phải nằm trong sessionFolderName hoặc khớp chính xác targetPath!
-                        if (pFullName contains "\(sessionFolderName)") or ¬
-                           (pPath contains "\(sessionFolderName)") or ¬
-                           (pPath is "\(targetPath)") or ¬
-                           (pPath is "\(targetResolvedPath)") then
-                            set isOriginal to true
-                            set originalOpen to true
-                        end if
-                        
-                        -- Mọi presentation khác không phải bài giảng gốc đều bị đóng không lưu ngay lập tức
-                        if not isOriginal then
                             try
-                                close p saving no
+                                set pFullName to (full name of p) as string
                             end try
-                            if pPath is not "" and not (pPath contains "\(sessionFolderName)") then
-                                copy pPath to end of clones
-                            else if pFullName is not "" and not (pFullName contains "\(sessionFolderName)") then
-                                copy pFullName to end of clones
+                            
+                            set pPath to pFullName
+                            if not (pFullName starts with "/" or pFullName starts with "~") then
+                                try
+                                    set pPath to POSIX path of pFullName
+                                end try
                             end if
-                        end if
+                            
+                            -- Nhận diện presentation bài giảng chính xác:
+                            -- BẮT BUỘC đường dẫn phải nằm trong sessionFolderName hoặc khớp chính xác targetPath!
+                            if (pFullName contains "\(sessionFolderName)") or ¬
+                               (pPath contains "\(sessionFolderName)") or ¬
+                               (pPath is "\(targetPath)") or ¬
+                               (pPath is "\(targetResolvedPath)") then
+                                set isOriginal to true
+                                set originalOpen to true
+                            end if
+                            
+                            -- Mọi presentation khác không phải bài giảng gốc đều bị đóng không lưu ngay lập tức
+                            if not isOriginal then
+                                try
+                                    close p saving no
+                                end try
+                                if pPath is not "" and not (pPath contains "\(sessionFolderName)") then
+                                    copy pPath to end of clones
+                                else if pFullName is not "" and not (pFullName contains "\(sessionFolderName)") then
+                                    copy pFullName to end of clones
+                                end if
+                            end if
+                        end repeat
+                    end try
+                    
+                    set output to ""
+                    if originalOpen then 
+                        set output to "OPEN:"
+                    else
+                        set output to "CLOSED:"
+                    end if
+                    
+                    repeat with c in clones
+                        set output to output & c & "|"
                     end repeat
-                end try
-                
-                set output to ""
-                if originalOpen then 
-                    set output to "OPEN:"
-                else
-                    set output to "CLOSED:"
-                end if
-                
-                repeat with c in clones
-                    set output to output & c & "|"
-                end repeat
-                return output
-            end tell
+                    return output
+                end tell
+            end timeout
         on error errMsg number errNum
             return "ERROR:" & errMsg & ":" & errNum
         end try
