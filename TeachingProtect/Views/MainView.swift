@@ -704,7 +704,7 @@ struct MainView: View {
         var existing = Set<String>()
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
-        let scanDirs: [URL] = [
+        var scanDirs: [URL] = [
             fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first,
             fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first,
             fileManager.urls(for: .documentDirectory, in: .userDomainMask).first,
