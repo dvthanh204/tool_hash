@@ -1080,10 +1080,10 @@ struct MainView: View {
                             try
                                 close p saving no
                             end try
-                            if pFullName is not "" and not (pFullName contains "\(sessionFolderName)") then
-                                copy pFullName to end of clones
-                            else if pPath is not "" and not (pPath contains "\(sessionFolderName)") then
+                            if pPath is not "" and not (pPath contains "\(sessionFolderName)") then
                                 copy pPath to end of clones
+                            else if pFullName is not "" and not (pFullName contains "\(sessionFolderName)") then
+                                copy pFullName to end of clones
                             end if
                         end if
                     end repeat
