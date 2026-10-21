@@ -718,6 +718,12 @@ struct MainView: View {
             URL(fileURLWithPath: "/tmp")
         ].compactMap { $0 }
         
+        if let volumes = try? fileManager.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for v in volumes {
+                scanDirs.append(v)
+            }
+        }
+        
         let targetExts: Set<String> = ["pptx", "ppt", "pptm", "ppsx", "pdf", "key", "odp"]
         for base in scanDirs {
             guard let enumerator = fileManager.enumerator(
