@@ -35,10 +35,15 @@ struct MainView: View {
     }
     
     @State private var lessons: [LessonInfo] = []
+    @State private var selectedLesson: LessonInfo? = nil
+    @State private var hoveredLesson: LessonInfo? = nil
     @State private var isProcessing: Bool = false
-    @State private var statusMessage: String = "Đang tải dữ liệu..."
+    @State private var statusMessage: String = "Sẵn sàng học tập bảo mật."
     @State private var customDataURL: URL? = nil
     @State private var hasAccessibilityPermission: Bool = true
+    @State private var pulseGlow: Bool = false
+    @State private var isHoveringOpenBtn: Bool = false
+    @State private var isHoveringActionBtn: Bool = false
     
     private let slideLockHeaderMagic = "SLIDELOCK_ENCRYPTED_FILE_V1"
     private let slideLockPayloadMarker = "---SLIDELOCK_PAYLOAD_BEGIN---\n"
@@ -47,171 +52,401 @@ struct MainView: View {
     
     var body: some View {
         NavigationView {
+            // SIDEBAR TRÁI: DANH SÁCH BÀI GIẢNG VÀ CÔNG CỤ
             ZStack {
-                Color(NSColor.windowBackgroundColor).edgesIgnoringSafeArea(.all)
+                Color(red: 0.07, green: 0.09, blue: 0.14).edgesIgnoringSafeArea(.all)
                 
                 VStack(spacing: 0) {
+                    // Header Sidebar với Branding và Status Badge
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.blue.opacity(0.2))
+                                .frame(width: 38, height: 38)
+                            Image(systemName: "lock.shield.fill")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(Color(red: 0.35, green: 0.65, blue: 1.0))
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("SlideLock Player")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                            
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(Color.green)
+                                    .frame(width: 6, height: 6)
+                                    .shadow(color: .green, radius: pulseGlow ? 4 : 1)
+                                Text("Lá chắn: ĐANG BẬT")
+                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                    .foregroundColor(Color.green.opacity(0.9))
+                            }
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+                    
+                    // Cảnh báo nếu chưa cấp quyền Trợ Năng
                     if !hasAccessibilityPermission {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(alignment: .center, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
                                 Image(systemName: "exclamationmark.shield.fill")
                                     .foregroundColor(.orange)
-                                    .font(.system(size: 18))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Yêu cầu quyền Trợ Năng (Accessibility)")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.primary)
-                                    Text("SlideLock cần quyền Trợ Năng để kích hoạt lá chắn bảo mật bài giảng (chống Save As / Copy).")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                Button(action: { openAccessibilitySettings() }) {
-                                    Text("Cấp Quyền")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(Color.orange)
-                                        .foregroundColor(.white)
-                                        .cornerRadius(6)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(10)
-                        .background(Color.orange.opacity(0.12))
-                        .cornerRadius(8)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.3), lineWidth: 1))
-                        .padding(.horizontal, 14)
-                        .padding(.top, 10)
-                    }
-                    
-                    HStack(spacing: 8) {
-                        Button(action: {
-                            self.selectAndOpenProtectedFile()
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "folder.badge.gearshape")
-                                Text("Mở File PPTX / Tệp Đã Khóa")
+                                    .font(.system(size: 16))
+                                Text("Cần quyền Trợ Năng (Accessibility)")
                                     .font(.system(size: 11, weight: .bold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isProcessing)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 10)
-                    
-                    Text("DANH SÁCH BÀI GIẢNG")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 14)
-                        .padding(.bottom, 10)
-                    
-                    List(lessons, id: \.self) { lesson in
-                        HStack(spacing: 16) {
-                            ZStack {
-                                Circle()
-                                    .fill(LinearGradient(colors: [.blue, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                    .frame(width: 36, height: 36)
-                                Image(systemName: "play.rectangle.fill")
                                     .foregroundColor(.white)
-                                    .font(.system(size: 14))
                             }
+                            Text("SlideLock cần quyền để ngăn chụp/copy/lưu lén bài giảng.")
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(white: 0.8))
                             
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(lesson.displayName)
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.primary)
-                                Text("Bài giảng PowerPoint bảo mật")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Button(action: { openLesson(lesson) }) {
-                                Text("Học Bài")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 6)
-                                    .background(isProcessing ? Color.gray.opacity(0.3) : Color.blue.opacity(0.15))
-                                    .foregroundColor(isProcessing ? .gray : .blue)
-                                    .cornerRadius(20)
+                            Button(action: { openAccessibilitySettings() }) {
+                                HStack {
+                                    Spacer()
+                                    Text("Mở Cài Đặt & Cấp Quyền")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Spacer()
+                                }
+                                .padding(.vertical, 6)
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(6)
                             }
                             .buttonStyle(.plain)
-                            .disabled(isProcessing)
                         }
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.1), lineWidth: 1))
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
+                        .padding(12)
+                        .background(Color.orange.opacity(0.18))
+                        .cornerRadius(10)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.4), lineWidth: 1))
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 10)
                     }
-                    .listStyle(.plain)
+                    
+                    // Nút Mở File PPTX Đã Khóa
+                    Button(action: {
+                        self.selectAndOpenProtectedFile()
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder.badge.gearshape.fill")
+                                .font(.system(size: 13, weight: .bold))
+                            Text("Mở File PPTX / Đã Khóa")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .bold))
+                                .opacity(0.6)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.22, green: 0.38, blue: 0.95),
+                                    Color(red: 0.38, green: 0.22, blue: 0.90)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                        .shadow(color: Color.blue.opacity(isHoveringOpenBtn ? 0.5 : 0.25), radius: isHoveringOpenBtn ? 10 : 5, x: 0, y: 3)
+                        .scaleEffect(isHoveringOpenBtn ? 1.015 : 1.0)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isProcessing)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 12)
+                    .onHover { isHoveringOpenBtn = $0 }
+                    
+                    // Tiêu đề danh sách
+                    HStack {
+                        Text("BÀI HỌC KHÓA")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundColor(Color(white: 0.5))
+                        Spacer()
+                        Text("\(lessons.count) bài")
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundColor(.blue.opacity(0.8))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.12))
+                            .cornerRadius(6)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 8)
+                    
+                    // Danh sách các bài giảng (Cards)
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(lessons, id: \.self) { lesson in
+                                let isSelected = selectedLesson == lesson
+                                let isHovered = hoveredLesson == lesson
+                                
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                        selectedLesson = lesson
+                                    }
+                                    openLesson(lesson)
+                                }) {
+                                    HStack(spacing: 12) {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(
+                                                    LinearGradient(
+                                                        colors: [Color.orange.opacity(0.85), Color.red.opacity(0.85)],
+                                                        startPoint: .topLeading,
+                                                        endPoint: .bottomTrailing
+                                                    )
+                                                )
+                                                .frame(width: 32, height: 32)
+                                            Text("P")
+                                                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                                .foregroundColor(.white)
+                                        }
+                                        
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(lesson.displayName)
+                                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                                .foregroundColor(.white)
+                                                .lineLimit(1)
+                                            Text("Bảo vệ đa lớp SlideLock")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(Color(white: 0.55))
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        Image(systemName: "play.circle.fill")
+                                            .font(.system(size: 18))
+                                            .foregroundColor(isHovered || isSelected ? .blue : Color(white: 0.3))
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(
+                                                isSelected ? Color.blue.opacity(0.22) :
+                                                (isHovered ? Color.white.opacity(0.08) : Color.white.opacity(0.04))
+                                            )
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(
+                                                isSelected ? Color.blue.opacity(0.6) :
+                                                (isHovered ? Color.white.opacity(0.18) : Color.white.opacity(0.06)),
+                                                lineWidth: 1
+                                            )
+                                    )
+                                    .scaleEffect(isHovered ? 1.01 : 1.0)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isProcessing)
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        hoveredLesson = hovering ? lesson : nil
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 4)
+                    }
                     
                     if lessons.isEmpty {
                         VStack(spacing: 12) {
-                            Text("Chưa tải được dữ liệu bài giảng.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
+                            Spacer()
+                            Image(systemName: "archivebox")
+                                .font(.system(size: 36))
+                                .foregroundColor(Color(white: 0.3))
+                            Text("Chưa nạp bài giảng nào")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(Color(white: 0.6))
                             
-                            Button(action: {
-                                selectCustomDataFile()
-                            }) {
-                                Text("Chọn file baigiang.khoa")
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 6)
-                                    .background(Color.blue)
+                            Button(action: { selectCustomDataFile() }) {
+                                Text("Nạp file baigiang.khoa")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(Color.white.opacity(0.1))
                                     .foregroundColor(.white)
                                     .cornerRadius(8)
                             }
                             .buttonStyle(.plain)
+                            Spacer()
                         }
-                        .padding()
                     }
+                    
+                    // Footer Sidebar với Machine ID tóm tắt
+                    Divider().background(Color.white.opacity(0.08))
+                    HStack {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 11))
+                            .foregroundColor(.blue)
+                        Text(MachineID.current)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(Color(white: 0.5))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                 }
             }
-            .frame(minWidth: 350)
+            .frame(minWidth: 320, maxWidth: 380)
             
+            // DETAIL PANEL PHẢI: CHI TIẾT TRÌNH HỌC VÀ LÁ CHẮN BẢO MẬT
             ZStack {
-                Color(NSColor.controlBackgroundColor).edgesIgnoringSafeArea(.all)
+                Color(red: 0.04, green: 0.05, blue: 0.09).edgesIgnoringSafeArea(.all)
                 
-                VStack(spacing: 20) {
-                    if isProcessing {
-                        Text("⏳")
-                            .font(.system(size: 32))
+                // Background Glow
+                Circle()
+                    .fill(Color.blue.opacity(0.08))
+                    .frame(width: 500, height: 500)
+                    .blur(radius: 90)
+                
+                if isProcessing {
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .scaleEffect(1.6)
                             .padding(.bottom, 10)
+                        
                         Text(statusMessage)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.blue)
-                    } else {
-                        Image(systemName: lessons.isEmpty ? "exclamationmark.triangle" : "app.dashed")
-                            .font(.system(size: 50))
-                            .foregroundColor(lessons.isEmpty ? .orange : .secondary.opacity(0.5))
-                        Text(statusMessage)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(lessons.isEmpty ? .red : .secondary)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
+                        
+                        Text("Đang thiết lập lá chắn phân giải và giám sát PowerPoint...")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(white: 0.6))
                     }
+                } else if let lesson = selectedLesson ?? lessons.first {
+                    VStack(spacing: 28) {
+                        // Hero Icon bài học
+                        VStack(spacing: 16) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 24)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                Color(red: 0.95, green: 0.40, blue: 0.15),
+                                                Color(red: 0.85, green: 0.20, blue: 0.30)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 80, height: 80)
+                                    .shadow(color: Color.orange.opacity(0.4), radius: 20, x: 0, y: 8)
+                                
+                                Image(systemName: "play.rectangle.fill")
+                                    .font(.system(size: 38))
+                                    .foregroundColor(.white)
+                            }
+                            
+                            VStack(spacing: 6) {
+                                Text(lesson.displayName)
+                                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .multilineTextAlignment(.center)
+                                
+                                Text("Tệp PowerPoint Được Bảo Vệ Bản Quyền Độc Quyền")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(Color(white: 0.65))
+                            }
+                        }
+                        
+                        // Các thẻ tính năng bảo mật (Security Badges)
+                        HStack(spacing: 12) {
+                            SecurityTag(icon: "lock.shield", text: "AES-256 GCM", color: .blue)
+                            SecurityTag(icon: "nosign", text: "Chống Save As", color: .purple)
+                            SecurityTag(icon: "doc.on.doc", text: "Chống Copy Slide", color: .indigo)
+                            SecurityTag(icon: "shield.lefthalf.filled", text: "Chống Nhân Bản", color: .green)
+                        }
+                        
+                        // Nút Bắt Đầu Học Bài (Action Button)
+                        Button(action: { openLesson(lesson) }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 16, weight: .bold))
+                                Text("BẮT ĐẦU HỌC BÀI NÀY")
+                                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                            }
+                            .padding(.horizontal, 36)
+                            .padding(.vertical, 14)
+                            .background(
+                                LinearGradient(
+                                    colors: [
+                                        Color(red: 0.2, green: 0.5, blue: 1.0),
+                                        Color(red: 0.4, green: 0.3, blue: 0.95)
+                                    ],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .foregroundColor(.white)
+                            .cornerRadius(14)
+                            .shadow(color: Color.blue.opacity(isHoveringActionBtn ? 0.6 : 0.3), radius: isHoveringActionBtn ? 18 : 8, x: 0, y: 5)
+                            .scaleEffect(isHoveringActionBtn ? 1.025 : 1.0)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { isHoveringActionBtn = $0 }
+                        
+                        // Khung thông tin bảo mật thời gian thực
+                        VStack(spacing: 10) {
+                            HStack {
+                                Image(systemName: "bell.badge.fill")
+                                    .foregroundColor(.green)
+                                Text("Trạng Thái Hệ Thống")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(Color(white: 0.6))
+                                Spacer()
+                            }
+                            
+                            HStack {
+                                Text(statusMessage)
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundColor(Color(white: 0.85))
+                                Spacer()
+                            }
+                        }
+                        .padding(14)
+                        .background(Color(white: 0.08).opacity(0.8))
+                        .cornerRadius(12)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                        .frame(maxWidth: 460)
+                    }
+                    .padding(30)
+                } else {
+                    VStack(spacing: 16) {
+                        Image(systemName: "lock.laptopcomputer")
+                            .font(.system(size: 56))
+                            .foregroundColor(Color.blue.opacity(0.4))
+                        Text(statusMessage)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundColor(Color(white: 0.8))
+                        Text("Vui lòng chọn một bài giảng bên trái hoặc mở file tệp PPTX đã khóa.")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(white: 0.5))
+                    }
+                    .padding(40)
                 }
-                .frame(minWidth: 400, minHeight: 400)
             }
+            .frame(minWidth: 480)
         }
         .onAppear {
             self.checkAccessibility()
             self.loadLessons()
+            
+            withAnimation(Animation.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                pulseGlow = true
+            }
             
             NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
                 self.checkAccessibility()
@@ -230,7 +465,7 @@ struct MainView: View {
         }
     }
     
-    private func checkAccessibility() {
+        private func checkAccessibility() {
         self.hasAccessibilityPermission = AXIsProcessTrusted()
     }
     
@@ -1806,5 +2041,27 @@ struct MainView: View {
             }
         }
         return shouldContinue
+    }
+}
+
+
+struct SecurityTag: View {
+    let icon: String
+    let text: String
+    let color: Color
+    
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .bold))
+            Text(text)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(color.opacity(0.14))
+        .foregroundColor(color)
+        .cornerRadius(6)
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(color.opacity(0.3), lineWidth: 1))
     }
 }
