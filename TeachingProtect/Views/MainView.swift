@@ -1100,16 +1100,6 @@ struct MainView: View {
         }
         
         // Chuyển đổi HFS path (ví dụ: "Macintosh HD:Users:name:Desktop:file.pptx")
-        if let cfUrl = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, trimmed as CFString, .cfurlhfsPathStyle, false) {
-            if let posixCf = CFURLCopyFileSystemPath(cfUrl, .cfurlposixPathStyle) {
-                let res = posixCf as String
-                if !res.isEmpty && res.starts(with: "/") {
-                    return res
-                }
-            }
-        }
-        
-        // Phương án thủ công dự phòng: tách theo dấu hai chấm ':'
         if trimmed.contains(":") {
             let parts = trimmed.components(separatedBy: ":")
             if parts.count > 1 {
