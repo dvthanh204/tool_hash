@@ -312,7 +312,7 @@ struct MainView: View {
                 if isProcessing {
                     VStack(spacing: 20) {
                         ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .progressViewStyle(CircularProgressViewStyle())
                             .scaleEffect(1.6)
                             .padding(.bottom, 10)
                         
@@ -366,7 +366,7 @@ struct MainView: View {
                         HStack(spacing: 12) {
                             SecurityTag(icon: "lock.shield", text: "AES-256 GCM", color: .blue)
                             SecurityTag(icon: "nosign", text: "Chống Save As", color: .purple)
-                            SecurityTag(icon: "doc.on.doc", text: "Chống Copy Slide", color: .indigo)
+                            SecurityTag(icon: "doc.on.doc", text: "Chống Copy Slide", color: Color(red: 0.35, green: 0.35, blue: 0.90))
                             SecurityTag(icon: "shield.lefthalf.filled", text: "Chống Nhân Bản", color: .green)
                         }
                         

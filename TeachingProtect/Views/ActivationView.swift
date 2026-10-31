@@ -143,7 +143,7 @@ struct ActivationView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Image(systemName: "key.fill")
-                            .foregroundColor(.indigo)
+                            .foregroundColor(Color(red: 0.35, green: 0.35, blue: 0.90))
                             .font(.system(size: 13))
                         Text("NHẬP MÃ BẢN QUYỀN (LICENSE KEY)")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -185,7 +185,7 @@ struct ActivationView: View {
                         Spacer()
                         if isActivating {
                             ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .progressViewStyle(CircularProgressViewStyle())
                                 .scaleEffect(0.8)
                         } else {
                             Image(systemName: "lock.open.fill")
