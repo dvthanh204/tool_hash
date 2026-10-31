@@ -452,11 +452,11 @@ struct MainView: View {
             let zipURL = try getDecryptedZipURL()
             
             let revTask = Process()
-            revTask.launchPath = "/usr/bin/unzip"
+            revTask.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             revTask.arguments = ["-p", zipURL.path, "revocations.json"]
             let revPipe = Pipe()
             revTask.standardOutput = revPipe
-            revTask.launch()
+            try? revTask.run()
             let revData = revPipe.fileHandleForReading.readDataToEndOfFile()
             revTask.waitUntilExit()
             if let revJson = try? JSONSerialization.jsonObject(with: revData) as? [String: Int], revJson[MachineID.current] != nil {
@@ -466,12 +466,12 @@ struct MainView: View {
             }
             
             let task = Process()
-            task.launchPath = "/usr/bin/unzip"
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             task.arguments = ["-p", zipURL.path, "manifest.json"]
             
             let pipe = Pipe()
             task.standardOutput = pipe
-            task.launch()
+            try? task.run()
             
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
@@ -487,12 +487,12 @@ struct MainView: View {
                 }
             } else {
                 let task2 = Process()
-                task2.launchPath = "/usr/bin/unzip"
+                task2.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
                 task2.arguments = ["-Z1", zipURL.path]
                 
                 let pipe2 = Pipe()
                 task2.standardOutput = pipe2
-                task2.launch()
+                try? task2.run()
                 let data2 = pipe2.fileHandleForReading.readDataToEndOfFile()
                 task2.waitUntilExit()
                 
@@ -545,11 +545,11 @@ struct MainView: View {
             
             // Trích xuất file bài giảng
             let task = Process()
-            task.launchPath = "/usr/bin/unzip"
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             task.arguments = ["-p", zipURL.path, lesson.safeName]
             let pipe = Pipe()
             task.standardOutput = pipe
-            task.launch()
+            try? task.run()
             let extractedData = pipe.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
             
@@ -611,9 +611,9 @@ struct MainView: View {
         let tempDir = pptxPath + "_temp_ext"
         
         let unz = Process()
-        unz.launchPath = "/usr/bin/unzip"
+        unz.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
         unz.arguments = ["-q", "-o", pptxPath, "-d", tempDir]
-        unz.launch()
+        try? unz.run()
         unz.waitUntilExit()
         
         // Ghi relationship vào _rels/.rels (root-level)
@@ -826,10 +826,10 @@ struct MainView: View {
         
         // Đóng gói lại file PPTX (KHÔNG đặt read-only — nếu đặt 0444 thì Cmd+S sẽ không ghi được và PowerPoint tự bật Save As)
         let zip = Process()
-        zip.launchPath = "/usr/bin/zip"
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
         zip.currentDirectoryPath = tempDir
         zip.arguments = ["-q", "-r", pptxPath, "."]
-        zip.launch()
+        try? zip.run()
         zip.waitUntilExit()
         
         try? FileManager.default.removeItem(atPath: tempDir)
@@ -1047,7 +1047,7 @@ struct MainView: View {
         let pid = pptApp.processIdentifier
         
         let process = Process()
-        process.launchPath = "/usr/sbin/lsof"
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         process.arguments = ["-p", "\(pid)", "-F", "n"]
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -1429,10 +1429,10 @@ struct MainView: View {
                 // Chạy zip từ trong sessionDir để chỉ cập nhật file bài giảng theo tên tương đối (originalName)
                 // Giữ nguyên 100% cấu trúc của archive baigiang.khoa mà không bị nhét thêm đường dẫn thư mục tuyệt đối
                 let task = Process()
-                task.launchPath = "/usr/bin/zip"
+                task.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
                 task.currentDirectoryPath = sessionDir.path
                 task.arguments = ["-q", "-u", tempZip.path, originalName]
-                task.launch()
+                try? task.run()
                 task.waitUntilExit()
             }
         }

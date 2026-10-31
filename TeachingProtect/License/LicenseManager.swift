@@ -45,11 +45,15 @@ public class LicenseManager {
         guard let zipPath = getDecryptedZipPath() else { return "default" }
 
         let task = Process()
-        task.launchPath = "/usr/bin/unzip"
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
         task.arguments = ["-p", zipPath, "manifest.json"]
         let pipe = Pipe()
         task.standardOutput = pipe
-        task.launch()
+        do {
+            try task.run()
+        } catch {
+            return "default"
+        }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         task.waitUntilExit()
 
@@ -112,11 +116,15 @@ public class LicenseManager {
         // --- KIỂM TRA REVOCATIONS TỪ GÓI BAIGIANG LÕI ---
         if let zipPath = getDecryptedZipPath() {
             let task = Process()
-            task.launchPath = "/usr/bin/unzip"
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             task.arguments = ["-p", zipPath, "revocations.json"]
             let pipe = Pipe()
             task.standardOutput = pipe
-            task.launch()
+            do {
+                try task.run()
+            } catch {
+                return false
+            }
             let revData = pipe.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
             

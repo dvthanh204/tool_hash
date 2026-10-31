@@ -89,7 +89,7 @@ jobs:
         chmod +x SlideLock.app/Contents/MacOS/SlideLock
         
         # Sign it with generic ad-hoc signature (-), which simulates the original developer's signature
-        codesign --force --deep --sign - SlideLock.app
+        codesign --force --deep --sign - --entitlements SlideLock.entitlements SlideLock.app
 
     - name: Run Windows Packer Tool headless
       run: |

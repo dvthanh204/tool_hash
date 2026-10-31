@@ -68,7 +68,7 @@ jobs:
         EOF
         
         chmod +x SlideLock.app/Contents/MacOS/SlideLock
-        codesign --force --deep --sign - SlideLock.app
+        codesign --force --deep --sign - --entitlements SlideLock.entitlements SlideLock.app
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
