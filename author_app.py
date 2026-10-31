@@ -14,15 +14,27 @@ else:
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-class ModernAuthorApp(ctk.CTk):
+class SlideLockModernAdmin(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("SlideLock Admin Suite • Hệ Thống Bảo Mật Bài Giảng macOS")
-        self.geometry("1060x720")
-        self.minsize(980, 660)
-        self.configure(fg_color="#090D16") # Deep Cyber Obsidian
+        self.title("SLIDELOCK • Admin Security Workspace")
+        self.geometry("1100x740")
+        self.minsize(1020, 680)
         
-        # Biến lưu trữ trạng thái
+        # Bảng màu Tươi Sáng & Đậm Chất Công Nghệ (Electric Tech Theme)
+        self.C_BG = "#060B19"          # Nền vũ trụ công nghệ sâu thẳm
+        self.C_SIDEBAR = "#091228"     # Sidebar xanh đêm huyền bí
+        self.C_BORDER = "#1B2C55"      # Viền công nghệ tinh tế
+        self.C_CARD_BG = "#0D1938"     # Thẻ nội dung xanh đậm
+        self.C_CYAN = "#00D2FF"        # Màu nhấn Cyan rực rỡ
+        self.C_BLUE = "#0066FF"        # Màu nút chính Electric Blue
+        self.C_BLUE_HOVER = "#0052CC"  # Hover xanh đậm
+        self.C_TEXT_WHITE = "#FFFFFF"  # Chữ trắng sáng
+        self.C_TEXT_MUTED = "#7D95C2"  # Chữ phụ xanh xám dịu mắt
+        self.C_ACCENT_GREEN = "#10B981" # Xanh lá bảo mật OK
+        
+        self.configure(fg_color=self.C_BG)
+        
         self.selected_files = []
         self.single_lock_files = []
         self.current_tab = "tab_pack"
@@ -32,71 +44,94 @@ class ModernAuthorApp(ctk.CTk):
         self.select_tab("tab_pack")
 
     def _init_layout(self):
-        # ── SIDEBAR TRÁI ─────────────────────────────────────────────
-        self.sidebar = ctk.CTkFrame(self, fg_color="#0F172A", width=250, corner_radius=0, border_width=1, border_color="#1E293B")
+        # ── SIDEBAR TRÁI (THEO ĐÚNG HÌNH ẢNH MẪU) ──────────────────────
+        self.sidebar = ctk.CTkFrame(self, fg_color=self.C_SIDEBAR, width=265, corner_radius=0, border_width=1, border_color=self.C_BORDER)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
         
-        # Logo & App Title
-        logo_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        logo_frame.pack(fill="x", padx=20, pady=(24, 15))
+        # 1. Logo & App Title (Hình Khiên Khóa Neon)
+        logo_box = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        logo_box.pack(fill="x", padx=20, pady=(24, 16))
         
-        brand_icon = ctk.CTkLabel(logo_frame, text="✦", font=ctk.CTkFont(size=26, weight="bold"), text_color="#6366F1")
-        brand_icon.pack(side="left", padx=(0, 8))
+        # Icon khiên phát sáng
+        shield_canvas = ctk.CTkFrame(logo_box, fg_color="#0066FF", corner_radius=14, width=46, height=46, border_width=2, border_color=self.C_CYAN)
+        shield_canvas.pack(side="left", padx=(0, 12))
+        shield_canvas.pack_propagate(False)
+        ctk.CTkLabel(shield_canvas, text="🔒", font=ctk.CTkFont(size=20)).place(relx=0.5, rely=0.5, anchor="center")
         
-        brand_title = ctk.CTkLabel(logo_frame, text="SLIDELOCK", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#F8FAFC")
-        brand_title.pack(side="left")
+        title_box = ctk.CTkFrame(logo_box, fg_color="transparent")
+        title_box.pack(side="left", fill="both", expand=True)
         
-        brand_sub = ctk.CTkLabel(self.sidebar, text="ADMIN SECURITY WORKSPACE", font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"), text_color="#64748B")
-        brand_sub.pack(anchor="w", padx=24, pady=(0, 15))
+        lbl_app_name = ctk.CTkLabel(title_box, text="SLIDELOCK", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_CYAN)
+        lbl_app_name.pack(anchor="w")
         
-        # Trạng thái Shell Engine Pill
-        self.status_pill = ctk.CTkFrame(self.sidebar, fg_color="#1E293B", corner_radius=12, height=32)
-        self.status_pill.pack(fill="x", padx=18, pady=(0, 20))
-        self.status_dot = ctk.CTkLabel(self.status_pill, text="●", font=ctk.CTkFont(size=14), text_color="#10B981")
-        self.status_dot.pack(side="left", padx=(12, 6), pady=6)
-        self.status_text = ctk.CTkLabel(self.status_pill, text="Engine: macOS 14/15 OK", font=ctk.CTkFont(size=11, weight="bold"), text_color="#94A3B8")
-        self.status_text.pack(side="left", pady=6)
+        lbl_app_sub = ctk.CTkLabel(title_box, text="ADMIN SECURITY WORKSPACE", font=ctk.CTkFont(family="Segoe UI", size=8, weight="bold"), text_color=self.C_TEXT_MUTED)
+        lbl_app_sub.pack(anchor="w")
         
-        # Menu Navigation Buttons
+        # 2. Card Trạng Thái Engine (Có nhịp tim EKG xanh công nghệ)
+        engine_card = ctk.CTkFrame(self.sidebar, fg_color="#0D1B3E", corner_radius=14, border_width=1, border_color="#20356B")
+        engine_card.pack(fill="x", padx=16, pady=(0, 20))
+        
+        top_eng = ctk.CTkFrame(engine_card, fg_color="transparent")
+        top_eng.pack(fill="x", padx=14, pady=(12, 2))
+        
+        self.dot_eng = ctk.CTkLabel(top_eng, text="●", font=ctk.CTkFont(size=14), text_color=self.C_ACCENT_GREEN)
+        self.dot_eng.pack(side="left", padx=(0, 6))
+        
+        self.lbl_eng_title = ctk.CTkLabel(top_eng, text="Engine: macOS Sẵn Sàng", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color=self.C_TEXT_WHITE)
+        self.lbl_eng_title.pack(side="left")
+        
+        ekg_icon = ctk.CTkLabel(top_eng, text="∿v∿", font=ctk.CTkFont(size=14, weight="bold"), text_color=self.C_CYAN)
+        ekg_icon.pack(side="right")
+        
+        lbl_eng_desc = ctk.CTkLabel(engine_card, text="Bảo vệ bài giảng của bạn an toàn", font=ctk.CTkFont(size=10), text_color=self.C_TEXT_MUTED)
+        lbl_eng_desc.pack(anchor="w", padx=14, pady=(0, 10))
+        
+        # 3. Các Nút Điều Hướng Navigation (Chuẩn Gradient Xanh Neon)
         self.nav_buttons = {}
         nav_items = [
-            ("tab_pack", "⚡ Đóng Gói Khóa Học", "#6366F1"),
-            ("tab_single", "🔒 Khóa PPTX Lẻ", "#8B5CF6"),
-            ("tab_key", "🔑 Cấp Key Bản Quyền", "#3B82F6"),
-            ("tab_ban", "🚫 Quản Lý Blacklist", "#EF4444"),
-            ("tab_pardon", "🕊️ Thẻ Bài Ân Xá", "#F59E0B")
+            ("tab_pack", "⚡ Đóng Gói Khóa Học", "arrow"),
+            ("tab_single", "🔒 Khóa PPTX Lẻ", ""),
+            ("tab_key", "🔑 Cấp Key Bản Quyền", ""),
+            ("tab_ban", "🚫 Quản Lý Blacklist", ""),
+            ("tab_pardon", "🛡️ Thẻ Bài Ân Xá", "")
         ]
         
-        for tab_id, label, accent in nav_items:
+        for tab_id, label, extra in nav_items:
             btn = ctk.CTkButton(
                 self.sidebar,
-                text=label,
+                text=label + ("   ›" if extra else ""),
                 font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                 fg_color="transparent",
-                text_color="#94A3B8",
-                hover_color="#1E293B",
+                text_color=self.C_TEXT_MUTED,
+                hover_color="#122046",
                 anchor="w",
-                height=44,
-                corner_radius=10,
+                height=48,
+                corner_radius=14,
                 command=lambda t=tab_id: self.select_tab(t)
             )
             btn.pack(fill="x", padx=14, pady=4)
-            self.nav_buttons[tab_id] = (btn, accent)
-            
-        # Thống kê tóm tắt ở đáy Sidebar
-        self.sidebar_footer = ctk.CTkFrame(self.sidebar, fg_color="#090D16", corner_radius=12, border_width=1, border_color="#1E293B")
+            self.nav_buttons[tab_id] = btn
+
+        # 4. Footer Sidebar (Hiển thị tóm tắt thiết bị và vỏ app)
+        self.sidebar_footer = ctk.CTkFrame(self.sidebar, fg_color="#0D1B3E", corner_radius=14, border_width=1, border_color="#1F356B")
         self.sidebar_footer.pack(side="bottom", fill="x", padx=14, pady=16)
         
-        self.lbl_stat_banned = ctk.CTkLabel(self.sidebar_footer, text="Máy bị cấm: 0", font=ctk.CTkFont(size=11), text_color="#64748B")
-        self.lbl_stat_banned.pack(anchor="w", padx=12, pady=(10, 2))
+        f_row1 = ctk.CTkFrame(self.sidebar_footer, fg_color="transparent")
+        f_row1.pack(fill="x", padx=12, pady=(10, 4))
+        ctk.CTkLabel(f_row1, text="ℹ", font=ctk.CTkFont(size=13, weight="bold"), text_color=self.C_CYAN).pack(side="left", padx=(0, 8))
+        self.lbl_stat_banned = ctk.CTkLabel(f_row1, text="Máy bị cấm: 0 thiết bị", font=ctk.CTkFont(size=11, weight="bold"), text_color=self.C_TEXT_WHITE)
+        self.lbl_stat_banned.pack(side="left")
         
-        self.lbl_stat_shell = ctk.CTkLabel(self.sidebar_footer, text="Shell: SlideLock.app", font=ctk.CTkFont(size=11), text_color="#10B981")
-        self.lbl_stat_shell.pack(anchor="w", padx=12, pady=(2, 10))
+        f_row2 = ctk.CTkFrame(self.sidebar_footer, fg_color="transparent")
+        f_row2.pack(fill="x", padx=12, pady=(0, 10))
+        ctk.CTkLabel(f_row2, text="✔", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.C_ACCENT_GREEN).pack(side="left", padx=(0, 8))
+        self.lbl_stat_shell = ctk.CTkLabel(f_row2, text="Shell: SlideLock.app ✓", font=ctk.CTkFont(size=11, weight="bold"), text_color=self.C_ACCENT_GREEN)
+        self.lbl_stat_shell.pack(side="left")
 
-        # ── KHU VỰC NỘI DUNG CHÍNH (MAIN CONTENT) ─────────────────────
+        # ── KHU VỰC NỘI DUNG CHÍNH (RIGHT MAIN CARD) ──────────────────
         self.content_area = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_area.pack(side="right", fill="both", expand=True, padx=30, pady=24)
+        self.content_area.pack(side="right", fill="both", expand=True, padx=24, pady=20)
         
         self.tab_frames = {
             "tab_pack": ctk.CTkFrame(self.content_area, fg_color="transparent"),
@@ -114,8 +149,7 @@ class ModernAuthorApp(ctk.CTk):
 
     def get_db(self):
         if os.path.exists("revocations.json"):
-            try:
-                return json.load(open("revocations.json", "r", encoding="utf-8"))
+            try: return json.load(open("revocations.json", "r", encoding="utf-8"))
             except: return {}
         return {}
 
@@ -125,100 +159,172 @@ class ModernAuthorApp(ctk.CTk):
 
     def update_system_stats(self):
         db = self.get_db()
-        banned_count = len(db)
-        self.lbl_stat_banned.configure(text=f"Máy bị cấm: {banned_count} thiết bị")
-        
+        self.lbl_stat_banned.configure(text=f"Máy bị cấm: {len(db)} thiết bị")
         has_app = os.path.exists("SlideLock.app")
         if has_app:
-            self.status_dot.configure(text_color="#10B981")
-            self.status_text.configure(text="Engine: macOS Sẵn Sàng")
-            self.lbl_stat_shell.configure(text="Shell: SlideLock.app ✓", text_color="#10B981")
+            self.dot_eng.configure(text_color=self.C_ACCENT_GREEN)
+            self.lbl_eng_title.configure(text="Engine: macOS Sẵn Sàng")
+            self.lbl_stat_shell.configure(text="Shell: SlideLock.app ✓", text_color=self.C_ACCENT_GREEN)
         else:
-            self.status_dot.configure(text_color="#EF4444")
-            self.status_text.configure(text="Engine: Thiếu SlideLock.app")
-            self.lbl_stat_shell.configure(text="Shell: Chưa nạp app!", text_color="#EF4444")
+            self.dot_eng.configure(text_color="#EF4444")
+            self.lbl_eng_title.configure(text="Engine: Thiếu SlideLock.app")
+            self.lbl_stat_shell.configure(text="Shell: Chưa nạp SlideLock.app", text_color="#EF4444")
 
     def select_tab(self, tab_id):
         self.current_tab = tab_id
-        for tid, (btn, accent) in self.nav_buttons.items():
+        for tid, btn in self.nav_buttons.items():
             if tid == tab_id:
-                btn.configure(fg_color="#1E293B", text_color="#FFFFFF")
+                btn.configure(
+                    fg_color=self.C_BLUE,
+                    text_color=self.C_TEXT_WHITE,
+                    border_width=1,
+                    border_color=self.C_CYAN
+                )
             else:
-                btn.configure(fg_color="transparent", text_color="#94A3B8")
+                btn.configure(
+                    fg_color="transparent",
+                    text_color=self.C_TEXT_MUTED,
+                    border_width=0
+                )
                 
         for frame in self.tab_frames.values():
             frame.pack_forget()
             
         self.tab_frames[tab_id].pack(fill="both", expand=True)
 
-    def _create_card(self, parent, title, subtitle):
-        card = ctk.CTkFrame(parent, fg_color="#0F172A", corner_radius=20, border_width=1, border_color="#1E293B")
-        card.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        header = ctk.CTkFrame(card, fg_color="transparent")
-        header.pack(fill="x", padx=32, pady=(28, 16))
-        
-        ctk.CTkLabel(header, text=title, font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"), text_color="#F8FAFC").pack(anchor="w")
-        ctk.CTkLabel(header, text=subtitle, font=ctk.CTkFont(family="Segoe UI", size=13), text_color="#64748B").pack(anchor="w", pady=(4, 0))
-        
-        body = ctk.CTkFrame(card, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=32, pady=(0, 24))
-        return body
-
     # ══════════════════════════════════════════════════════════════════
-    # TAB 1: ĐÓNG GÓI KHÓA HỌC
+    # TAB 1: ĐÓNG GÓI KHÓA HỌC (THIẾT KẾ Y HỆT ẢNH MẪU 100%)
     # ══════════════════════════════════════════════════════════════════
     def _build_tab_pack(self):
-        body = self._create_card(
-            self.tab_frames["tab_pack"],
-            "Đóng Gói Khóa Học Cho Mac (Universal)",
-            "Đóng gói toàn bộ bài giảng PPTX thành file .zip phân phối kèm app SlideLock đã ký số."
+        main_card = ctk.CTkFrame(self.tab_frames["tab_pack"], fg_color=self.C_CARD_BG, corner_radius=22, border_width=1, border_color=self.C_BORDER)
+        main_card.pack(fill="both", expand=True)
+        
+        # 1. Header Khóa Học với Icon Tròn Phát Sáng & Laptop 3D Minh Họa
+        header_frame = ctk.CTkFrame(main_card, fg_color="transparent")
+        header_frame.pack(fill="x", padx=28, pady=(22, 14))
+        
+        # Nút icon tròn tia sét xanh
+        round_icon_box = ctk.CTkFrame(header_frame, fg_color="#0066FF", corner_radius=28, width=54, height=54, border_width=2, border_color=self.C_CYAN)
+        round_icon_box.pack(side="left", padx=(0, 16))
+        round_icon_box.pack_propagate(False)
+        ctk.CTkLabel(round_icon_box, text="⚡", font=ctk.CTkFont(size=24)).place(relx=0.5, rely=0.5, anchor="center")
+        
+        header_text = ctk.CTkFrame(header_frame, fg_color="transparent")
+        header_text.pack(side="left", fill="both", expand=True)
+        
+        title_row = ctk.CTkFrame(header_text, fg_color="transparent")
+        title_row.pack(anchor="w")
+        ctk.CTkLabel(title_row, text="Đóng Gói Khóa Học Cho Mac ", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_TEXT_WHITE).pack(side="left")
+        ctk.CTkLabel(title_row, text="(Universal)", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_CYAN).pack(side="left")
+        
+        sub_desc = ctk.CTkLabel(
+            header_text,
+            text="Đóng gói toàn bộ bài giảng PPTX thành file .zip phân phối kèm app SlideLock đã ký số.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=self.C_TEXT_MUTED
         )
+        sub_desc.pack(anchor="w", pady=(2, 0))
         
-        # Khu vực chọn tệp
-        picker_box = ctk.CTkFrame(body, fg_color="#1E293B", corner_radius=14, border_width=1, border_color="#334155")
-        picker_box.pack(fill="x", pady=(0, 16), ipady=8)
+        # Huy hiệu Laptop 3D bảo mật
+        laptop_badge = ctk.CTkFrame(header_frame, fg_color="#0A1636", corner_radius=16, border_width=1, border_color="#203975")
+        laptop_badge.pack(side="right", padx=(10, 0))
+        ctk.CTkLabel(laptop_badge, text="💻 P 🔒", font=ctk.CTkFont(size=18)).pack(padx=14, pady=8)
+
+        # 2. Thanh Chọn Tệp Trên Cùng (Folder Pill Bar)
+        pill_bar = ctk.CTkFrame(main_card, fg_color="#101C3D", corner_radius=14, border_width=1, border_color="#233B75", height=50)
+        pill_bar.pack(fill="x", padx=28, pady=(0, 14))
+        pill_bar.pack_propagate(False)
         
-        self.pack_file_count_lbl = ctk.CTkLabel(picker_box, text="Chưa chọn tệp bài giảng nào", font=ctk.CTkFont(size=13, weight="bold"), text_color="#94A3B8")
-        self.pack_file_count_lbl.pack(side="left", padx=20)
+        folder_icon = ctk.CTkLabel(pill_bar, text="📁", font=ctk.CTkFont(size=18))
+        folder_icon.pack(side="left", padx=(16, 10))
         
-        btn_sel = ctk.CTkButton(
-            picker_box,
+        self.pack_summary_lbl = ctk.CTkLabel(
+            pill_bar,
+            text="Chưa chọn tệp bài giảng nào",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=self.C_TEXT_WHITE
+        )
+        self.pack_summary_lbl.pack(side="left")
+        
+        btn_add_files = ctk.CTkButton(
+            pill_bar,
             text="📁 Thêm File PPTX...",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#3B82F6",
-            hover_color="#2563EB",
-            height=38,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            fg_color=self.C_BLUE,
+            hover_color=self.C_BLUE_HOVER,
+            text_color=self.C_TEXT_WHITE,
+            height=36,
             corner_radius=10,
+            border_width=1,
+            border_color=self.C_CYAN,
             command=self._sel_pack_files
         )
-        btn_sel.pack(side="right", padx=16, pady=8)
+        btn_add_files.pack(side="right", padx=10, pady=7)
+
+        # 3. Vùng Kéo Thả / Danh Sách Bài Học (Dashed Dropzone Card)
+        self.dropzone_box = ctk.CTkFrame(main_card, fg_color="#08122C", corner_radius=16, border_width=2, border_color="#203975")
+        self.dropzone_box.pack(fill="both", expand=True, padx=28, pady=(0, 16))
         
-        # Danh sách tệp cuộn được (File Scrollable List)
-        self.pack_files_frame = ctk.CTkScrollableFrame(body, fg_color="#090D16", corner_radius=12, height=180, border_width=1, border_color="#1E293B")
-        self.pack_files_frame.pack(fill="both", expand=True, pady=(0, 16))
-        self._refresh_pack_file_list()
+        # Khung chứa nội dung bên trong dropzone (tự động chuyển đổi giữa icon kéo thả và danh sách file)
+        self.dropzone_content = ctk.CTkFrame(self.dropzone_box, fg_color="transparent")
+        self.dropzone_content.pack(fill="both", expand=True, padx=16, pady=16)
         
-        # Progress Bar & Status
-        self.pack_progress = ctk.CTkProgressBar(body, fg_color="#1E293B", progress_color="#10B981", height=8, corner_radius=4)
-        self.pack_progress.pack(fill="x", pady=(0, 12))
+        self._render_pack_dropzone_empty()
+
+        # 4. Trạng Thái & Thanh Tiến Trình (Progress Bar)
+        progress_row = ctk.CTkFrame(main_card, fg_color="transparent")
+        progress_row.pack(fill="x", padx=28, pady=(0, 16))
+        
+        status_left = ctk.CTkFrame(progress_row, fg_color="transparent")
+        status_left.pack(side="left")
+        ctk.CTkLabel(status_left, text="✔", font=ctk.CTkFont(size=13, weight="bold"), text_color=self.C_ACCENT_GREEN).pack(side="left", padx=(0, 6))
+        self.lbl_pack_msg = ctk.CTkLabel(status_left, text="Sẵn sàng đóng gói bài giảng.", font=ctk.CTkFont(family="Segoe UI", size=12), text_color=self.C_TEXT_MUTED)
+        self.lbl_pack_msg.pack(side="left")
+        
+        self.lbl_pack_pct = ctk.CTkLabel(progress_row, text="Sẵn sàng • 0%", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color=self.C_TEXT_MUTED)
+        self.lbl_pack_pct.pack(side="right")
+        
+        self.pack_progress = ctk.CTkProgressBar(main_card, fg_color="#101D40", progress_color=self.C_CYAN, height=6, corner_radius=3)
+        self.pack_progress.pack(fill="x", padx=28, pady=(0, 16))
         self.pack_progress.set(0)
-        
-        self.pack_status_lbl = ctk.CTkLabel(body, text="Sẵn sàng đóng gói bài giảng.", font=ctk.CTkFont(size=12), text_color="#64748B")
-        self.pack_status_lbl.pack(anchor="w", pady=(0, 12))
-        
-        # Nút Build Lớn với Hiệu Ứng
-        self.btn_pack_run = ctk.CTkButton(
-            body,
-            text="⚡ KHỞI TẠO VÀ XUẤT GÓI KHÓA HỌC (KhoaHoc_Mac.zip)",
+
+        # 5. Nút Khởi Tạo Lớn Phát Sáng Hình Pill (Chuẩn Theo Hình Ảnh Mẫu)
+        self.btn_run_pack = ctk.CTkButton(
+            main_card,
+            text="⚡  KHỞI TẠO VÀ XUẤT GÓI KHÓA HỌC (KhoaHoc_Mac.zip)        ➔",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            fg_color="#10B981",
-            hover_color="#059669",
-            height=50,
-            corner_radius=12,
+            fg_color=self.C_BLUE,
+            hover_color=self.C_BLUE_HOVER,
+            text_color=self.C_TEXT_WHITE,
+            height=54,
+            corner_radius=27,
+            border_width=1.5,
+            border_color=self.C_CYAN,
             command=self._run_pack_mac
         )
-        self.btn_pack_run.pack(fill="x")
+        self.btn_run_pack.pack(fill="x", padx=28, pady=(0, 24))
+
+    def _render_pack_dropzone_empty(self):
+        for w in self.dropzone_content.winfo_children(): w.destroy()
+        
+        center_wrapper = ctk.CTkFrame(self.dropzone_content, fg_color="transparent")
+        center_wrapper.place(relx=0.5, rely=0.5, anchor="center")
+        
+        # Icon Tài liệu PowerPoint 3D lớn
+        doc_card = ctk.CTkFrame(center_wrapper, fg_color="#14244E", corner_radius=18, width=80, height=80, border_width=1.5, border_color=self.C_CYAN)
+        doc_card.pack(pady=(0, 12))
+        doc_card.pack_propagate(False)
+        
+        ctk.CTkLabel(doc_card, text="P", font=ctk.CTkFont(family="Segoe UI", size=32, weight="bold"), text_color="#F97316").place(relx=0.4, rely=0.45, anchor="center")
+        
+        # Vòng tròn mũi tên tải lên
+        up_circle = ctk.CTkFrame(doc_card, fg_color=self.C_BLUE, corner_radius=12, width=24, height=24, border_width=1, border_color=self.C_CYAN)
+        up_circle.place(relx=0.75, rely=0.75, anchor="center")
+        up_circle.pack_propagate(False)
+        ctk.CTkLabel(up_circle, text="↑", font=ctk.CTkFont(size=14, weight="bold"), text_color="#FFFFFF").place(relx=0.5, rely=0.5, anchor="center")
+        
+        ctk.CTkLabel(center_wrapper, text="Kéo thả file PPTX vào đây", font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color=self.C_TEXT_WHITE).pack()
+        ctk.CTkLabel(center_wrapper, text="hoặc nhấn nút \"Thêm File PPTX...\" để chọn tệp", font=ctk.CTkFont(family="Segoe UI", size=12), text_color=self.C_TEXT_MUTED).pack(pady=(4, 0))
 
     def _sel_pack_files(self):
         pths = filedialog.askopenfilenames(filetypes=[("PowerPoint Presentation", "*.pptx")])
@@ -226,32 +332,32 @@ class ModernAuthorApp(ctk.CTk):
             for p in pths:
                 if p not in self.selected_files:
                     self.selected_files.append(p)
-            self._refresh_pack_file_list()
+            self._render_pack_dropzone_list()
 
-    def _refresh_pack_file_list(self):
-        for widget in self.pack_files_frame.winfo_children():
-            widget.destroy()
-            
+    def _render_pack_dropzone_list(self):
         if not self.selected_files:
-            empty_lbl = ctk.CTkLabel(self.pack_files_frame, text="Chưa có bài học nào được chọn. Nhấn 'Thêm File PPTX...' bên trên.", font=ctk.CTkFont(size=12), text_color="#475569")
-            empty_lbl.pack(pady=40)
-            self.pack_file_count_lbl.configure(text="Chưa chọn tệp bài giảng nào", text_color="#94A3B8")
+            self._render_pack_dropzone_empty()
+            self.pack_summary_lbl.configure(text="Chưa chọn tệp bài giảng nào", text_color=self.C_TEXT_WHITE)
             return
             
-        self.pack_file_count_lbl.configure(text=f"Đã chọn: {len(self.selected_files)} bài giảng", text_color="#38BDF8")
+        for w in self.dropzone_content.winfo_children(): w.destroy()
+        
+        self.pack_summary_lbl.configure(text=f"Đã chọn {len(self.selected_files)} bài giảng sẵn sàng bọc thép", text_color=self.C_CYAN)
+        
+        scroll = ctk.CTkScrollableFrame(self.dropzone_content, fg_color="transparent")
+        scroll.pack(fill="both", expand=True)
         
         for idx, fpath in enumerate(self.selected_files):
-            item = ctk.CTkFrame(self.pack_files_frame, fg_color="#131B2A", corner_radius=8, height=36)
-            item.pack(fill="x", padx=4, pady=3)
+            item = ctk.CTkFrame(scroll, fg_color="#101D40", corner_radius=10, height=38, border_width=1, border_color="#203975")
+            item.pack(fill="x", padx=4, pady=4)
             
-            badge = ctk.CTkLabel(item, text=f"#{idx+1}", font=ctk.CTkFont(size=11, weight="bold"), text_color="#6366F1", width=36)
+            badge = ctk.CTkLabel(item, text=f"#{idx+1}", font=ctk.CTkFont(size=11, weight="bold"), text_color=self.C_CYAN, width=36)
             badge.pack(side="left", padx=(8, 4))
             
             fname = os.path.basename(fpath)
             fsize = f"{os.path.getsize(fpath) / (1024*1024):.1f} MB" if os.path.exists(fpath) else ""
             
-            name_lbl = ctk.CTkLabel(item, text=f"{fname}  ({fsize})", font=ctk.CTkFont(size=12, weight="bold"), text_color="#E2E8F0")
-            name_lbl.pack(side="left", padx=6)
+            ctk.CTkLabel(item, text=f"{fname}  ({fsize})", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.C_TEXT_WHITE).pack(side="left", padx=6)
             
             btn_del = ctk.CTkButton(
                 item,
@@ -261,7 +367,7 @@ class ModernAuthorApp(ctk.CTk):
                 height=24,
                 fg_color="transparent",
                 hover_color="#EF4444",
-                text_color="#94A3B8",
+                text_color=self.C_TEXT_MUTED,
                 corner_radius=6,
                 command=lambda p=fpath: self._remove_pack_file(p)
             )
@@ -270,17 +376,18 @@ class ModernAuthorApp(ctk.CTk):
     def _remove_pack_file(self, p):
         if p in self.selected_files:
             self.selected_files.remove(p)
-            self._refresh_pack_file_list()
+            self._render_pack_dropzone_list()
 
     def _run_pack_mac(self):
         if not self.selected_files:
-            return messagebox.showerror("Lỗi", "Vui lòng chọn ít nhất 1 file .pptx để đóng gói!")
+            return messagebox.showerror("Lỗi", "Vui lòng chọn ít nhất 1 bài giảng .pptx!")
         if not os.path.exists("SlideLock.app"):
-            return messagebox.showerror("Lỗi", "Không tìm thấy thư mục 'SlideLock.app' vỏ hệ thống trong thư mục làm việc!")
+            return messagebox.showerror("Lỗi", "Không tìm thấy thư mục vỏ 'SlideLock.app' trong hệ thống!")
             
-        self.btn_pack_run.configure(state="disabled", text="⏳ Đang mã hóa và đóng gói...")
+        self.btn_run_pack.configure(state="disabled", text="⏳ ĐANG TIẾN HÀNH ĐÓNG GÓI BẢO MẬT...")
         self.pack_progress.set(0.2)
-        self.pack_status_lbl.configure(text="Đang mã hóa AES-256 GCM lõi bài giảng...")
+        self.lbl_pack_msg.configure(text="Đang mã hóa AES-256 GCM lõi bài giảng...")
+        self.lbl_pack_pct.configure(text="Đang xử lý • 20%")
         
         def worker():
             try:
@@ -297,7 +404,7 @@ class ModernAuthorApp(ctk.CTk):
                     zf.write("revocations.json", "revocations.json") if os.path.exists("revocations.json") else zf.writestr("revocations.json", "{}")
                 
                 self.pack_progress.set(0.5)
-                self.pack_status_lbl.configure(text="Đang khởi tạo mã hóa chống dịch ngược...")
+                self.lbl_pack_pct.configure(text="Đang xử lý • 50%")
                 
                 aesgcm = AESGCM(b"12345678901234567890123456789012")
                 nonce = os.urandom(12)
@@ -311,7 +418,8 @@ class ModernAuthorApp(ctk.CTk):
                     out_name = f"KhoaHoc_Mac_{counter}.zip"
                     
                 self.pack_progress.set(0.7)
-                self.pack_status_lbl.configure(text=f"Đang đóng gói file phân phối: {out_name}...")
+                self.lbl_pack_msg.configure(text=f"Đang xuất file nén phân phối: {out_name}...")
+                self.lbl_pack_pct.configure(text="Đang xử lý • 70%")
                 
                 with zipfile.ZipFile(out_name, 'w', zipfile.ZIP_DEFLATED) as zf:
                     base_folder = "KhoaHoc_Mac/"
@@ -354,58 +462,85 @@ class ModernAuthorApp(ctk.CTk):
                 os.remove("baigiang.khoa")
                 
                 self.pack_progress.set(1.0)
-                self.pack_status_lbl.configure(text=f"✓ Đã xuất thành công gói {out_name}!")
-                messagebox.showinfo("Thành Công", f"Đã xuất xong gói phân phối {out_name}!\n\nĐường dẫn tệp:\n{os.path.abspath(out_name)}")
+                self.lbl_pack_msg.configure(text=f"✓ Đã xuất xong gói {out_name} thành công!")
+                self.lbl_pack_pct.configure(text="Hoàn tất • 100%")
+                messagebox.showinfo("Thành Công", f"Đã xuất xong gói phân phối {out_name} siêu bảo mật!\n\nĐường dẫn tệp:\n{os.path.abspath(out_name)}")
             except Exception as e:
                 messagebox.showerror("Lỗi", str(e))
             finally:
-                self.btn_pack_run.configure(state="normal", text="⚡ KHỞI TẠO VÀ XUẤT GÓI KHÓA HỌC (KhoaHoc_Mac.zip)")
+                self.btn_run_pack.configure(state="normal", text="⚡  KHỞI TẠO VÀ XUẤT GÓI KHÓA HỌC (KhoaHoc_Mac.zip)        ➔")
                 
         threading.Thread(target=worker, daemon=True).start()
 
     # ══════════════════════════════════════════════════════════════════
-    # TAB 2: KHÓA FILE PPTX LẺ
+    # TAB 2: KHÓA FILE PPTX LẺ (VỚI GIAO DIỆN CÙNG PHONG CÁCH)
     # ══════════════════════════════════════════════════════════════════
     def _build_tab_single(self):
-        body = self._create_card(
-            self.tab_frames["tab_single"],
-            "Khóa Mã Hóa File PPTX Lẻ",
-            "Gán mã lỗi 0xSL-E994 & mã hóa AES-GCM. Học viên mở trực tiếp sẽ báo lỗi, bắt buộc mở qua SlideLock."
-        )
+        main_card = ctk.CTkFrame(self.tab_frames["tab_single"], fg_color=self.C_CARD_BG, corner_radius=22, border_width=1, border_color=self.C_BORDER)
+        main_card.pack(fill="both", expand=True)
         
-        picker_box = ctk.CTkFrame(body, fg_color="#1E293B", corner_radius=14, border_width=1, border_color="#334155")
-        picker_box.pack(fill="x", pady=(0, 16), ipady=8)
+        header_frame = ctk.CTkFrame(main_card, fg_color="transparent")
+        header_frame.pack(fill="x", padx=28, pady=(22, 14))
         
-        self.single_count_lbl = ctk.CTkLabel(picker_box, text="Chưa chọn file PPTX nào", font=ctk.CTkFont(size=13, weight="bold"), text_color="#94A3B8")
-        self.single_count_lbl.pack(side="left", padx=20)
+        round_icon_box = ctk.CTkFrame(header_frame, fg_color="#6366F1", corner_radius=28, width=54, height=54, border_width=2, border_color="#A855F7")
+        round_icon_box.pack(side="left", padx=(0, 16))
+        round_icon_box.pack_propagate(False)
+        ctk.CTkLabel(round_icon_box, text="🔒", font=ctk.CTkFont(size=22)).place(relx=0.5, rely=0.5, anchor="center")
         
-        btn_sel = ctk.CTkButton(
-            picker_box,
+        header_text = ctk.CTkFrame(header_frame, fg_color="transparent")
+        header_text.pack(side="left", fill="both", expand=True)
+        
+        title_row = ctk.CTkFrame(header_text, fg_color="transparent")
+        title_row.pack(anchor="w")
+        ctk.CTkLabel(title_row, text="Khóa Mã Hóa File PPTX Lẻ ", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_TEXT_WHITE).pack(side="left")
+        ctk.CTkLabel(title_row, text="(Mã Lỗi 0xSL-E994)", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#A855F7").pack(side="left")
+        
+        ctk.CTkLabel(
+            header_text,
+            text="Gán header lỗi bảo mật SlideLock. PowerPoint mở trực tiếp sẽ báo hỏng, bắt buộc mở qua app.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=self.C_TEXT_MUTED
+        ).pack(anchor="w", pady=(2, 0))
+        
+        # Pill bar chọn file
+        pill_bar = ctk.CTkFrame(main_card, fg_color="#101C3D", corner_radius=14, border_width=1, border_color="#233B75", height=50)
+        pill_bar.pack(fill="x", padx=28, pady=(0, 14))
+        pill_bar.pack_propagate(False)
+        
+        ctk.CTkLabel(pill_bar, text="📁", font=ctk.CTkFont(size=18)).pack(side="left", padx=(16, 10))
+        self.single_summary_lbl = ctk.CTkLabel(pill_bar, text="Chưa chọn tệp PPTX nào", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"), text_color=self.C_TEXT_WHITE)
+        self.single_summary_lbl.pack(side="left")
+        
+        ctk.CTkButton(
+            pill_bar,
             text="📁 Chọn File PPTX...",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#8B5CF6",
-            hover_color="#7C3AED",
-            height=38,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            fg_color="#6366F1",
+            hover_color="#4F46E5",
+            height=36,
             corner_radius=10,
+            border_width=1,
+            border_color="#A855F7",
             command=self._sel_single_files
-        )
-        btn_sel.pack(side="right", padx=16, pady=8)
+        ).pack(side="right", padx=10, pady=7)
         
-        self.single_files_frame = ctk.CTkScrollableFrame(body, fg_color="#090D16", corner_radius=12, height=200, border_width=1, border_color="#1E293B")
-        self.single_files_frame.pack(fill="both", expand=True, pady=(0, 16))
-        self._refresh_single_file_list()
+        self.single_box = ctk.CTkScrollableFrame(main_card, fg_color="#08122C", corner_radius=16, border_width=2, border_color="#203975")
+        self.single_box.pack(fill="both", expand=True, padx=28, pady=(0, 20))
+        self._render_single_list()
         
-        btn_lock = ctk.CTkButton(
-            body,
-            text="🔒 MÃ HÓA & GÁN MÃ LỖI SLIDELOCK NGAY",
+        ctk.CTkButton(
+            main_card,
+            text="🔒  MÃ HÓA & GÁN MÃ LỖI BẢO MẬT (CHỈ MỞ QUA SLIDELOCK)        ➔",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             fg_color="#6366F1",
             hover_color="#4F46E5",
-            height=50,
-            corner_radius=12,
+            text_color=self.C_TEXT_WHITE,
+            height=54,
+            corner_radius=27,
+            border_width=1.5,
+            border_color="#A855F7",
             command=self._run_single_lock
-        )
-        btn_lock.pack(fill="x")
+        ).pack(fill="x", padx=28, pady=(0, 24))
 
     def _sel_single_files(self):
         pths = filedialog.askopenfilenames(filetypes=[("PowerPoint Presentation", "*.pptx")])
@@ -413,32 +548,22 @@ class ModernAuthorApp(ctk.CTk):
             for p in pths:
                 if p not in self.single_lock_files:
                     self.single_lock_files.append(p)
-            self._refresh_single_file_list()
+            self._render_single_list()
 
-    def _refresh_single_file_list(self):
-        for widget in self.single_files_frame.winfo_children():
-            widget.destroy()
-            
+    def _render_single_list(self):
+        for w in self.single_box.winfo_children(): w.destroy()
         if not self.single_lock_files:
-            empty_lbl = ctk.CTkLabel(self.single_files_frame, text="Chưa có file PPTX nào được chọn.", font=ctk.CTkFont(size=12), text_color="#475569")
-            empty_lbl.pack(pady=40)
-            self.single_count_lbl.configure(text="Chưa chọn file PPTX nào", text_color="#94A3B8")
+            ctk.CTkLabel(self.single_box, text="Chưa có file PPTX nào được chọn.", font=ctk.CTkFont(size=13), text_color=self.C_TEXT_MUTED).pack(pady=60)
+            self.single_summary_lbl.configure(text="Chưa chọn tệp PPTX nào")
             return
             
-        self.single_count_lbl.configure(text=f"Đã chọn: {len(self.single_lock_files)} tệp", text_color="#C084FC")
-        
-        for idx, fpath in enumerate(self.single_lock_files):
-            item = ctk.CTkFrame(self.single_files_frame, fg_color="#131B2A", corner_radius=8, height=36)
-            item.pack(fill="x", padx=4, pady=3)
-            
-            badge = ctk.CTkLabel(item, text=f"PPTX", font=ctk.CTkFont(size=10, weight="bold"), text_color="#F97316", width=42)
-            badge.pack(side="left", padx=(8, 4))
-            
-            fname = os.path.basename(fpath)
-            name_lbl = ctk.CTkLabel(item, text=fname, font=ctk.CTkFont(size=12, weight="bold"), text_color="#E2E8F0")
-            name_lbl.pack(side="left", padx=6)
-            
-            btn_del = ctk.CTkButton(
+        self.single_summary_lbl.configure(text=f"Đã chọn {len(self.single_lock_files)} tệp PPTX", text_color="#A855F7")
+        for fpath in self.single_lock_files:
+            item = ctk.CTkFrame(self.single_box, fg_color="#101D40", corner_radius=10, height=38)
+            item.pack(fill="x", padx=4, pady=4)
+            ctk.CTkLabel(item, text="PPTX", font=ctk.CTkFont(size=10, weight="bold"), text_color="#F97316", width=42).pack(side="left", padx=8)
+            ctk.CTkLabel(item, text=os.path.basename(fpath), font=ctk.CTkFont(size=12, weight="bold"), text_color=self.C_TEXT_WHITE).pack(side="left", padx=6)
+            ctk.CTkButton(
                 item,
                 text="✕",
                 font=ctk.CTkFont(size=11, weight="bold"),
@@ -446,16 +571,14 @@ class ModernAuthorApp(ctk.CTk):
                 height=24,
                 fg_color="transparent",
                 hover_color="#EF4444",
-                text_color="#94A3B8",
                 corner_radius=6,
                 command=lambda p=fpath: self._remove_single_file(p)
-            )
-            btn_del.pack(side="right", padx=8)
+            ).pack(side="right", padx=8)
 
     def _remove_single_file(self, p):
         if p in self.single_lock_files:
             self.single_lock_files.remove(p)
-            self._refresh_single_file_list()
+            self._render_single_list()
 
     def _run_single_lock(self):
         if not self.single_lock_files:
@@ -466,11 +589,8 @@ class ModernAuthorApp(ctk.CTk):
             out_files = []
             for p_pth in self.single_lock_files:
                 if not os.path.exists(p_pth): continue
-                with open(p_pth, "rb") as f_in:
-                    raw_data = f_in.read()
-                
-                if raw_data.startswith(b"SLIDELOCK_ENCRYPTED_FILE_V1"):
-                    continue
+                with open(p_pth, "rb") as f_in: raw_data = f_in.read()
+                if raw_data.startswith(b"SLIDELOCK_ENCRYPTED_FILE_V1"): continue
                 
                 nonce = os.urandom(12)
                 enc = aesgcm.encrypt(nonce, raw_data, None)
@@ -493,23 +613,19 @@ class ModernAuthorApp(ctk.CTk):
                 dirname = os.path.dirname(p_pth)
                 base = os.path.splitext(os.path.basename(p_pth))[0]
                 out_path = os.path.join(dirname, f"{base}_locked.pptx")
-                with open(out_path, "wb") as f_out:
-                    f_out.write(header + payload)
+                with open(out_path, "wb") as f_out: f_out.write(header + payload)
                 locked_count += 1
                 out_files.append(os.path.basename(out_path))
                 
             if locked_count > 0:
-                files_str = "\n".join(out_files[:5])
-                if len(out_files) > 5:
-                    files_str += f"\n... và {len(out_files) - 5} tệp khác"
-                messagebox.showinfo("Thành Công", f"Đã mã hóa và gán mã lỗi SlideLock cho {locked_count} tệp!\n\nDanh sách:\n{files_str}\n\nKhi mở bằng PowerPoint máy sẽ báo lỗi không đọc được. Bắt buộc phải mở qua SlideLock!")
+                messagebox.showinfo("Thành Công", f"Đã mã hóa và gán mã lỗi SlideLock cho {locked_count} tệp!\n\nKhi mở bằng PowerPoint thông thường máy sẽ báo lỗi không đọc được. Bắt buộc phải mở qua SlideLock!")
             else:
-                messagebox.showwarning("Thông Báo", "Tất cả các tệp được chọn đã được mã hóa từ trước!")
+                messagebox.showwarning("Thông Báo", "Các tệp được chọn đã được mã hóa trước đó.")
         except Exception as e:
             messagebox.showerror("Lỗi", str(e))
 
     # ══════════════════════════════════════════════════════════════════
-    # TAB 3: CẤP KEY BẢN QUYỀN
+    # TAB 3: CẤP KEY BẢN QUYỀN (ELECTRIC CYAN THEME)
     # ══════════════════════════════════════════════════════════════════
     def _generate_hmac_key(self, u):
         raw = f"{u.strip().upper()}".encode('utf-8')
@@ -519,143 +635,165 @@ class ModernAuthorApp(ctk.CTk):
         return f"{code[:4]}-{code[4:8]}-{code[8:12]}"
 
     def _build_tab_key(self):
-        body = self._create_card(
-            self.tab_frames["tab_key"],
-            "Cấp Key Bản Quyền (HMAC-SHA256)",
-            "Tạo khóa kích hoạt gắn chặt với phần cứng MacBook của từng học viên."
-        )
+        main_card = ctk.CTkFrame(self.tab_frames["tab_key"], fg_color=self.C_CARD_BG, corner_radius=22, border_width=1, border_color=self.C_BORDER)
+        main_card.pack(fill="both", expand=True)
         
-        ctk.CTkLabel(body, text="NHẬP MÃ THIẾT BỊ (MACHINE ID DO HỌC VIÊN GỬI):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#94A3B8").pack(anchor="w", pady=(10, 6))
+        header_frame = ctk.CTkFrame(main_card, fg_color="transparent")
+        header_frame.pack(fill="x", padx=28, pady=(24, 20))
         
-        self.entry_machine_id = ctk.CTkEntry(
-            body,
-            height=50,
+        round_icon_box = ctk.CTkFrame(header_frame, fg_color=self.C_BLUE, corner_radius=28, width=54, height=54, border_width=2, border_color=self.C_CYAN)
+        round_icon_box.pack(side="left", padx=(0, 16))
+        round_icon_box.pack_propagate(False)
+        ctk.CTkLabel(round_icon_box, text="🔑", font=ctk.CTkFont(size=22)).place(relx=0.5, rely=0.5, anchor="center")
+        
+        header_text = ctk.CTkFrame(header_frame, fg_color="transparent")
+        header_text.pack(side="left", fill="both", expand=True)
+        ctk.CTkLabel(header_text, text="Cấp Key Bản Quyền (HMAC-SHA256)", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_TEXT_WHITE).pack(anchor="w")
+        ctk.CTkLabel(header_text, text="Tạo khóa kích hoạt 12 chữ số gắn chặt với phần cứng MacBook của học viên.", font=ctk.CTkFont(family="Segoe UI", size=12), text_color=self.C_TEXT_MUTED).pack(anchor="w", pady=(2, 0))
+        
+        body_box = ctk.CTkFrame(main_card, fg_color="#08122C", corner_radius=16, border_width=2, border_color="#203975")
+        body_box.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        
+        ctk.CTkLabel(body_box, text="NHẬP MACHINE ID CỦA HỌC VIÊN:", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.C_CYAN).pack(anchor="w", padx=24, pady=(24, 8))
+        
+        self.entry_mid = ctk.CTkEntry(
+            body_box,
+            height=52,
             placeholder_text="Ví dụ: ABCD-1234-EF56-7890...",
             font=ctk.CTkFont(family="Consolas", size=16),
-            fg_color="#090D16",
-            border_color="#334155",
+            fg_color="#0D1B3E",
+            border_color="#233E78",
             border_width=2,
             corner_radius=12
         )
-        self.entry_machine_id.pack(fill="x", pady=(0, 16))
+        self.entry_mid.pack(fill="x", padx=24, pady=(0, 16))
         
-        btn_gen = ctk.CTkButton(
-            body,
-            text="✨ TẠO CHÌA KHÓA BẢN QUYỀN DUY NHẤT",
+        ctk.CTkButton(
+            body_box,
+            text="✨ TẠO CHÌA KHÓA BẢN QUYỀN DUY NHẤT        ➔",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            fg_color="#3B82F6",
-            hover_color="#2563EB",
-            height=46,
+            fg_color=self.C_BLUE,
+            hover_color=self.C_BLUE_HOVER,
+            height=48,
             corner_radius=12,
-            command=self._generate_key_action
-        )
-        btn_gen.pack(fill="x", pady=(0, 20))
+            border_width=1,
+            border_color=self.C_CYAN,
+            command=self._gen_key_action
+        ).pack(fill="x", padx=24, pady=(0, 20))
         
-        ctk.CTkLabel(body, text="KHÓA KÍCH HOẠT ĐƯỢC TẠO RA (12 CHỮ SỐ):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#10B981").pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(body_box, text="KHÓA KÍCH HOẠT (12 CHỮ SỐ BẢN QUYỀN):", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.C_ACCENT_GREEN).pack(anchor="w", padx=24, pady=(0, 8))
         
-        self.generated_key_var = ctk.StringVar()
-        self.entry_key_output = ctk.CTkEntry(
-            body,
-            textvariable=self.generated_key_var,
-            height=60,
+        self.key_output_var = ctk.StringVar()
+        self.entry_key_out = ctk.CTkEntry(
+            body_box,
+            textvariable=self.key_output_var,
+            height=62,
             font=ctk.CTkFont(family="Consolas", size=24, weight="bold"),
             justify="center",
             state="readonly",
-            fg_color="#090D16",
-            text_color="#10B981",
-            border_color="#10B981",
+            fg_color="#0D1B3E",
+            text_color=self.C_CYAN,
+            border_color=self.C_CYAN,
             border_width=2,
             corner_radius=12
         )
-        self.entry_key_output.pack(fill="x", pady=(0, 14))
+        self.entry_key_out.pack(fill="x", padx=24, pady=(0, 16))
         
-        self.btn_copy_key = ctk.CTkButton(
-            body,
+        self.btn_copy = ctk.CTkButton(
+            body_box,
             text="📋 SAO CHÉP KEY VÀO BỘ NHỚ TẠM",
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            fg_color="#1E293B",
-            hover_color="#334155",
-            text_color="#F8FAFC",
-            height=42,
+            fg_color="#101D40",
+            hover_color="#1A2D60",
+            text_color=self.C_TEXT_WHITE,
+            height=44,
             corner_radius=10,
             command=self._copy_key_action
         )
-        self.btn_copy_key.pack(fill="x")
+        self.btn_copy.pack(fill="x", padx=24, pady=(0, 24))
 
-    def _generate_key_action(self):
-        mid = self.entry_machine_id.get().strip()
-        if not mid:
-            return messagebox.showerror("Lỗi", "Vui lòng nhập Machine ID của học viên!")
-        key = self._generate_hmac_key(mid)
-        self.generated_key_var.set(key)
-        self.btn_copy_key.configure(text="📋 SAO CHÉP KEY VÀO BỘ NHỚ TẠM", fg_color="#1E293B", text_color="#F8FAFC")
+    def _gen_key_action(self):
+        mid = self.entry_mid.get().strip()
+        if not mid: return messagebox.showerror("Lỗi", "Vui lòng nhập Machine ID của học viên!")
+        self.key_output_var.set(self._generate_hmac_key(mid))
+        self.btn_copy.configure(text="📋 SAO CHÉP KEY VÀO BỘ NHỚ TẠM", fg_color="#101D40", text_color=self.C_TEXT_WHITE)
 
     def _copy_key_action(self):
-        key = self.generated_key_var.get()
+        key = self.key_output_var.get()
         if not key: return
         self.clipboard_clear()
         self.clipboard_append(key)
-        self.btn_copy_key.configure(text="✓ ĐÃ SAO CHÉP KEY THÀNH CÔNG!", fg_color="#065F46", text_color="#34D399")
-        self.after(2000, lambda: self.btn_copy_key.configure(text="📋 SAO CHÉP KEY VÀO BỘ NHỚ TẠM", fg_color="#1E293B", text_color="#F8FAFC"))
+        self.btn_copy.configure(text="✓ ĐÃ SAO CHÉP KEY VÀO CLIPBOARD!", fg_color="#065F46", text_color="#34D399")
+        self.after(2000, lambda: self.btn_copy.configure(text="📋 SAO CHÉP KEY VÀO BỘ NHỚ TẠM", fg_color="#101D40", text_color=self.C_TEXT_WHITE))
 
     # ══════════════════════════════════════════════════════════════════
-    # TAB 4: QUẢN LÝ BLACKLIST (KHÓA MÁY)
+    # TAB 4: QUẢN LÝ BLACKLIST
     # ══════════════════════════════════════════════════════════════════
     def _build_tab_ban(self):
-        body = self._create_card(
-            self.tab_frames["tab_ban"],
-            "Quản Lý Danh Sách Đen (Blacklist)",
-            "Tước quyền sử dụng và cấm vĩnh viễn các máy tính vi phạm bản quyền khỏi hệ thống."
-        )
+        main_card = ctk.CTkFrame(self.tab_frames["tab_ban"], fg_color=self.C_CARD_BG, corner_radius=22, border_width=1, border_color=self.C_BORDER)
+        main_card.pack(fill="both", expand=True)
         
-        ctk.CTkLabel(body, text="NHẬP MACHINE ID CẦN CẤM KHẨN CẤP:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#EF4444").pack(anchor="w", pady=(10, 6))
+        header_frame = ctk.CTkFrame(main_card, fg_color="transparent")
+        header_frame.pack(fill="x", padx=28, pady=(24, 20))
         
-        self.entry_ban_id = ctk.CTkEntry(
-            body,
+        round_icon_box = ctk.CTkFrame(header_frame, fg_color="#EF4444", corner_radius=28, width=54, height=54, border_width=2, border_color="#F87171")
+        round_icon_box.pack(side="left", padx=(0, 16))
+        round_icon_box.pack_propagate(False)
+        ctk.CTkLabel(round_icon_box, text="🚫", font=ctk.CTkFont(size=22)).place(relx=0.5, rely=0.5, anchor="center")
+        
+        header_text = ctk.CTkFrame(header_frame, fg_color="transparent")
+        header_text.pack(side="left", fill="both", expand=True)
+        ctk.CTkLabel(header_text, text="Quản Lý Danh Sách Đen (Blacklist)", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_TEXT_WHITE).pack(anchor="w")
+        ctk.CTkLabel(header_text, text="Tước quyền sử dụng và cấm vĩnh viễn các máy tính vi phạm khỏi hệ thống.", font=ctk.CTkFont(family="Segoe UI", size=12), text_color=self.C_TEXT_MUTED).pack(anchor="w", pady=(2, 0))
+        
+        body_box = ctk.CTkFrame(main_card, fg_color="#08122C", corner_radius=16, border_width=2, border_color="#203975")
+        body_box.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        
+        ctk.CTkLabel(body_box, text="NHẬP MACHINE ID CẦN CẤM KHẨN CẤP:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#EF4444").pack(anchor="w", padx=24, pady=(20, 8))
+        
+        self.entry_ban = ctk.CTkEntry(
+            body_box,
             height=50,
             placeholder_text="Dán Machine ID của thiết bị vi phạm...",
             font=ctk.CTkFont(family="Consolas", size=15),
-            fg_color="#090D16",
-            text_color="#F87171",
+            fg_color="#0D1B3E",
+            text_color="#FCA5A5",
             border_color="#7F1D1D",
             border_width=2,
             corner_radius=12
         )
-        self.entry_ban_id.pack(fill="x", pady=(0, 14))
+        self.entry_ban.pack(fill="x", padx=24, pady=(0, 14))
         
-        btn_ban = ctk.CTkButton(
-            body,
+        ctk.CTkButton(
+            body_box,
             text="🚫 TIÊU DIỆT & CẤM THIẾT BỊ NÀY VĨNH VIỄN",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             fg_color="#EF4444",
             hover_color="#DC2626",
             height=46,
             corner_radius=12,
-            command=self._ban_device_action
-        )
-        btn_ban.pack(fill="x", pady=(0, 20))
+            command=self._ban_action
+        ).pack(fill="x", padx=24, pady=(0, 18))
         
-        ctk.CTkLabel(body, text="DANH SÁCH THIẾT BỊ ĐANG BỊ CẤM TRONG HỆ THỐNG:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#94A3B8").pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(body_box, text="DANH SÁCH THIẾT BỊ BỊ CẤM:", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.C_TEXT_MUTED).pack(anchor="w", padx=24, pady=(0, 8))
         
-        self.ban_list_frame = ctk.CTkScrollableFrame(body, fg_color="#090D16", corner_radius=12, height=160, border_width=1, border_color="#1E293B")
-        self.ban_list_frame.pack(fill="both", expand=True)
+        self.ban_box = ctk.CTkScrollableFrame(body_box, fg_color="#0D1B3E", corner_radius=12, height=140)
+        self.ban_box.pack(fill="both", expand=True, padx=24, pady=(0, 20))
         self._refresh_ban_list()
 
     def _refresh_ban_list(self):
-        for w in self.ban_list_frame.winfo_children(): w.destroy()
+        for w in self.ban_box.winfo_children(): w.destroy()
         db = self.get_db()
         if not db:
-            ctk.CTkLabel(self.ban_list_frame, text="Chưa có thiết bị nào bị đưa vào danh sách đen.", font=ctk.CTkFont(size=12), text_color="#475569").pack(pady=30)
+            ctk.CTkLabel(self.ban_box, text="Chưa có thiết bị nào bị đưa vào danh sách đen.", font=ctk.CTkFont(size=12), text_color=self.C_TEXT_MUTED).pack(pady=30)
             return
             
         for mid in db.keys():
-            item = ctk.CTkFrame(self.ban_list_frame, fg_color="#1C1917", corner_radius=8, height=36)
+            item = ctk.CTkFrame(self.ban_box, fg_color="#1C1917", corner_radius=8, height=36)
             item.pack(fill="x", padx=4, pady=3)
-            
             ctk.CTkLabel(item, text="BANNED", font=ctk.CTkFont(size=10, weight="bold"), text_color="#EF4444", width=55).pack(side="left", padx=8)
             ctk.CTkLabel(item, text=mid, font=ctk.CTkFont(family="Consolas", size=13, weight="bold"), text_color="#FCA5A5").pack(side="left", padx=6)
-            
-            btn_unban = ctk.CTkButton(
+            ctk.CTkButton(
                 item,
                 text="Gỡ phạt",
                 font=ctk.CTkFont(size=11, weight="bold"),
@@ -665,8 +803,7 @@ class ModernAuthorApp(ctk.CTk):
                 hover_color="#475569",
                 corner_radius=6,
                 command=lambda m=mid: self._quick_unban(m)
-            )
-            btn_unban.pack(side="right", padx=8)
+            ).pack(side="right", padx=8)
 
     def _quick_unban(self, mid):
         db = self.get_db()
@@ -676,43 +813,55 @@ class ModernAuthorApp(ctk.CTk):
             self._refresh_ban_list()
             messagebox.showinfo("Ân Xá", f"Đã tháo gỡ án phạt cho thiết bị {mid}!")
 
-    def _ban_device_action(self):
-        u = self.entry_ban_id.get().strip().upper()
-        if not u:
-            return messagebox.showerror("Lỗi", "Vui lòng nhập Machine ID cần cấm!")
+    def _ban_action(self):
+        u = self.entry_ban.get().strip().upper()
+        if not u: return messagebox.showerror("Lỗi", "Vui lòng nhập Machine ID cần cấm!")
         db = self.get_db()
         db[u] = 1
         self.save_db(db)
-        self.entry_ban_id.delete(0, 'end')
+        self.entry_ban.delete(0, 'end')
         self._refresh_ban_list()
         messagebox.showinfo("Thành Công", f"Đã cấm vĩnh viễn thiết bị '{u}' khỏi toàn bộ hệ thống!")
 
     # ══════════════════════════════════════════════════════════════════
-    # TAB 5: ÂN XÁ (PARDON)
+    # TAB 5: ÂN XÁ
     # ══════════════════════════════════════════════════════════════════
     def _build_tab_pardon(self):
-        body = self._create_card(
-            self.tab_frames["tab_pardon"],
-            "Thẻ Bài Ân Xá Thiết Bị",
-            "Xóa án phạt trong danh sách đen và cấp lại ngay chìa khóa gốc cho học viên."
-        )
+        main_card = ctk.CTkFrame(self.tab_frames["tab_pardon"], fg_color=self.C_CARD_BG, corner_radius=22, border_width=1, border_color=self.C_BORDER)
+        main_card.pack(fill="both", expand=True)
         
-        ctk.CTkLabel(body, text="NHẬP MACHINE ID ĐANG BỊ CẤM CẦN ÂN XÁ:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#F59E0B").pack(anchor="w", pady=(10, 6))
+        header_frame = ctk.CTkFrame(main_card, fg_color="transparent")
+        header_frame.pack(fill="x", padx=28, pady=(24, 20))
         
-        self.entry_pardon_id = ctk.CTkEntry(
-            body,
+        round_icon_box = ctk.CTkFrame(header_frame, fg_color="#F59E0B", corner_radius=28, width=54, height=54, border_width=2, border_color="#FCD34D")
+        round_icon_box.pack(side="left", padx=(0, 16))
+        round_icon_box.pack_propagate(False)
+        ctk.CTkLabel(round_icon_box, text="🕊️", font=ctk.CTkFont(size=22)).place(relx=0.5, rely=0.5, anchor="center")
+        
+        header_text = ctk.CTkFrame(header_frame, fg_color="transparent")
+        header_text.pack(side="left", fill="both", expand=True)
+        ctk.CTkLabel(header_text, text="Thẻ Bài Ân Xá Thiết Bị", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_TEXT_WHITE).pack(anchor="w")
+        ctk.CTkLabel(header_text, text="Gỡ phạt trong danh sách đen và lập tức cấp lại chìa khóa gốc cho học viên.", font=ctk.CTkFont(family="Segoe UI", size=12), text_color=self.C_TEXT_MUTED).pack(anchor="w", pady=(2, 0))
+        
+        body_box = ctk.CTkFrame(main_card, fg_color="#08122C", corner_radius=16, border_width=2, border_color="#203975")
+        body_box.pack(fill="both", expand=True, padx=28, pady=(0, 24))
+        
+        ctk.CTkLabel(body_box, text="NHẬP MACHINE ID ĐANG BỊ CẤM CẦN ÂN XÁ:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#F59E0B").pack(anchor="w", padx=24, pady=(20, 8))
+        
+        self.entry_pardon = ctk.CTkEntry(
+            body_box,
             height=50,
             placeholder_text="Nhập Machine ID đang bị cấm...",
             font=ctk.CTkFont(family="Consolas", size=15),
-            fg_color="#090D16",
+            fg_color="#0D1B3E",
             border_color="#78350F",
             border_width=2,
             corner_radius=12
         )
-        self.entry_pardon_id.pack(fill="x", pady=(0, 16))
+        self.entry_pardon.pack(fill="x", padx=24, pady=(0, 16))
         
-        btn_pardon = ctk.CTkButton(
-            body,
+        ctk.CTkButton(
+            body_box,
             text="🕊️ GỠ ÁN PHẠT & XUẤT LẠI KEY GỐC",
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             fg_color="#F59E0B",
@@ -720,40 +869,38 @@ class ModernAuthorApp(ctk.CTk):
             height=46,
             corner_radius=12,
             command=self._pardon_action
-        )
-        btn_pardon.pack(fill="x", pady=(0, 20))
+        ).pack(fill="x", padx=24, pady=(0, 20))
         
-        ctk.CTkLabel(body, text="CHÌA KHÓA GỐC ĐỂ HỌC VIÊN TIẾP TỤC HỌC BÀI:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#F59E0B").pack(anchor="w", pady=(0, 6))
+        ctk.CTkLabel(body_box, text="CHÌA KHÓA GỐC ĐỂ TIẾP TỤC HỌC BÀI:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#F59E0B").pack(anchor="w", padx=24, pady=(0, 8))
         
-        self.pardon_key_var = ctk.StringVar()
+        self.pardon_out_var = ctk.StringVar()
         self.entry_pardon_out = ctk.CTkEntry(
-            body,
-            textvariable=self.pardon_key_var,
+            body_box,
+            textvariable=self.pardon_out_var,
             height=60,
             font=ctk.CTkFont(family="Consolas", size=24, weight="bold"),
             justify="center",
             state="readonly",
-            fg_color="#090D16",
+            fg_color="#0D1B3E",
             text_color="#F59E0B",
             border_color="#F59E0B",
             border_width=2,
             corner_radius=12
         )
-        self.entry_pardon_out.pack(fill="x")
+        self.entry_pardon_out.pack(fill="x", padx=24, pady=(0, 24))
 
     def _pardon_action(self):
-        u = self.entry_pardon_id.get().strip().upper()
-        if not u:
-            return messagebox.showerror("Lỗi", "Vui lòng nhập Machine ID cần ân xá!")
+        u = self.entry_pardon.get().strip().upper()
+        if not u: return messagebox.showerror("Lỗi", "Vui lòng nhập Machine ID cần ân xá!")
         db = self.get_db()
         if u in db:
             del db[u]
             self.save_db(db)
         key = self._generate_hmac_key(u)
-        self.pardon_key_var.set(key)
+        self.pardon_out_var.set(key)
         self._refresh_ban_list()
-        messagebox.showinfo("Ân Xá Thành Công", f"Đã gỡ án phạt cho thiết bị '{u}'!\nHọc viên có thể sử dụng lại Key gốc bên dưới để tiếp tục học bài.")
+        messagebox.showinfo("Ân Xá Thành Công", f"Đã gỡ án phạt cho thiết bị '{u}'!\nHọc viên có thể dùng Key gốc bên dưới để tiếp tục học bài.")
 
 if __name__ == "__main__":
-    app = ModernAuthorApp()
+    app = SlideLockModernAdmin()
     app.mainloop()
