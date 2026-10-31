@@ -16,7 +16,8 @@ if [ -d "SlideLock.app" ]; then
     echo "   vui long chon 'Mo Cai dat he thong' va gat BAT cho SlideLock."
     echo "2. Khong dong cua so SlideLock (nut X) trong luc hoc bai."
     echo "-----------------------------------------------------"
-    echo "Bay gio ban co the mo SlideLock.app de hoc bai."
+    echo "Dang khoi dong SlideLock.app..."
+    open "SlideLock.app"
 else
     echo "[LOI] Khong tim thay SlideLock.app trong thu muc nay!"
     echo "Vui long dam bao ban da giai nen dung cach."

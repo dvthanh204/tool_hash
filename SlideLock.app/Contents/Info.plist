@@ -25,5 +25,13 @@
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>SlideLock cần quyền điều khiển Microsoft PowerPoint và System Events để khóa chức năng Save As / Copy trong lúc học bài.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>SlideLock cần quyền truy cập để bảo vệ bản quyền bài giảng và phát hiện sao chép.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>SlideLock cần quyền truy cập để bảo vệ bản quyền bài giảng và phát hiện sao chép.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>SlideLock cần quyền truy cập để bảo vệ bản quyền bài giảng và phát hiện sao chép.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>SlideLock cần quyền truy cập để bảo vệ bản quyền bài giảng trên thiết bị lưu trữ ngoài.</string>
 </dict>
 </plist>

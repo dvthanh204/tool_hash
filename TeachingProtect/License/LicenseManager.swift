@@ -60,22 +60,22 @@ public class LicenseManager {
 
     public func loadLicense() {
         let licenseKey = "com.teachingprotect.license.\(getPackageId())"
-        guard let keyBase64 = UserDefaults.standard.string(forKey: licenseKey) else {
-            self.isActivated = false
+        if let keyBase64 = UserDefaults.standard.string(forKey: licenseKey), validate(keyBase64: keyBase64) {
+            self.isActivated = true
             return
         }
-        
-        if validate(keyBase64: keyBase64) {
+        if let globalKey = UserDefaults.standard.string(forKey: "com.teachingprotect.license.global"), validate(keyBase64: globalKey) {
             self.isActivated = true
-        } else {
-            self.isActivated = false
+            return
         }
+        self.isActivated = false
     }
     
     public func activate(withKey keyBase64: String) -> Bool {
         if validate(keyBase64: keyBase64) {
              let licenseKey = "com.teachingprotect.license.\(getPackageId())"
              UserDefaults.standard.set(keyBase64, forKey: licenseKey)
+             UserDefaults.standard.set(keyBase64, forKey: "com.teachingprotect.license.global")
              self.isActivated = true
              return true
         }

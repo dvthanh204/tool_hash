@@ -1,8 +1,15 @@
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-import json, os, zipfile, io, base64
+import json, os, sys, zipfile, io, base64
+from datetime import datetime
 import hmac, hashlib
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+# Đảm bảo thư mục làm việc luôn là thư mục chứa file thực thi / script
+if getattr(sys, 'frozen', False):
+    os.chdir(os.path.dirname(os.path.abspath(sys.executable)))
+else:
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -76,172 +83,6 @@ class AuthorApp(ctk.CTk):
         ctk.CTkLabel(card, text=desc, font=ctk.CTkFont(family="Inter", size=14), text_color="#71717A").pack(pady=(0, 30), anchor="center")
         return card
 
-    def protect_pptx(self, input_path):
-        import io, re
-        out_buf = io.BytesIO()
-
-        # --- CustomUI XML chuẩn cho PowerPoint 2007/2008 (namespace 2006/01) ---
-        custom_ui_2007 = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
-  <commands>
-    <command idMso="FileSave" enabled="true"/>
-    <command idMso="FileSaveAs" enabled="false"/>
-    <command idMso="FileSaveAsMenu" enabled="false"/>
-    <command idMso="FileSaveAsMac" enabled="false"/>
-    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
-    <command idMso="FileSaveACopy" enabled="false"/>
-    <command idMso="FileSaveCopyAs" enabled="false"/>
-    <command idMso="FileSaveAsPicture" enabled="false"/>
-    <command idMso="PictureSaveAs" enabled="false"/>
-    <command idMso="SaveMediaAs" enabled="false"/>
-    <command idMso="Export" enabled="false"/>
-    <command idMso="FileExport" enabled="false"/>
-    <command idMso="FileExportAsPdf" enabled="false"/>
-    <command idMso="PublishToPdfOrXps" enabled="false"/>
-    <command idMso="CreateVideo" enabled="false"/>
-    <command idMso="FileExportToVideo" enabled="false"/>
-    <command idMso="PackageForCd" enabled="false"/>
-    <command idMso="CreateHandouts" enabled="false"/>
-    <command idMso="Share" enabled="false"/>
-    <command idMso="ShareDocument" enabled="false"/>
-    <command idMso="FileSendAsAttachment" enabled="false"/>
-    <command idMso="FileSendAsPdf" enabled="false"/>
-    <command idMso="FileSendAsXps" enabled="false"/>
-    <command idMso="FilePrint" enabled="false"/>
-    <command idMso="FilePrintMac" enabled="false"/>
-    <command idMso="FilePrintQuick" enabled="false"/>
-    <command idMso="PrintPreviewAndPrint" enabled="false"/>
-    <command idMso="ApplicationOptionsDialog" enabled="false"/>
-    <command idMso="Duplicate" enabled="false"/>
-    <command idMso="FileDuplicate" enabled="false"/>
-    <command idMso="FileMove" enabled="false"/>
-  </commands>
-  <ribbon>
-    <officeMenu>
-      <button idMso="FileSaveAs" visible="false"/>
-      <button idMso="FileSaveAsMenu" visible="false"/>
-      <button idMso="FilePrint" visible="false"/>
-      <button idMso="FilePrintMenu" visible="false"/>
-      <menu idMso="FileSendMenu" visible="false"/>
-      <button idMso="FilePublishToPdfOrXps" visible="false"/>
-    </officeMenu>
-  </ribbon>
-</customUI>'''
-
-        # --- CustomUI14 XML chuẩn cho Office 2010+/PowerPoint for Mac hiện đại (namespace 2009/07) ---
-        custom_ui_2010 = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
-  <commands>
-    <command idMso="FileSave" enabled="true"/>
-    <command idMso="FileSaveAs" enabled="false"/>
-    <command idMso="FileSaveAsMenu" enabled="false"/>
-    <command idMso="FileSaveAsMac" enabled="false"/>
-    <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
-    <command idMso="FileSaveACopy" enabled="false"/>
-    <command idMso="FileSaveCopyAs" enabled="false"/>
-    <command idMso="FileSaveAsPicture" enabled="false"/>
-    <command idMso="PictureSaveAs" enabled="false"/>
-    <command idMso="SaveMediaAs" enabled="false"/>
-    <command idMso="Export" enabled="false"/>
-    <command idMso="FileExport" enabled="false"/>
-    <command idMso="FileExportAsPdf" enabled="false"/>
-    <command idMso="PublishToPdfOrXps" enabled="false"/>
-    <command idMso="CreateVideo" enabled="false"/>
-    <command idMso="FileExportToVideo" enabled="false"/>
-    <command idMso="PackageForCd" enabled="false"/>
-    <command idMso="CreateHandouts" enabled="false"/>
-    <command idMso="Share" enabled="false"/>
-    <command idMso="ShareDocument" enabled="false"/>
-    <command idMso="FileSendAsAttachment" enabled="false"/>
-    <command idMso="FileSendAsPdf" enabled="false"/>
-    <command idMso="FileSendAsXps" enabled="false"/>
-    <command idMso="FilePrint" enabled="false"/>
-    <command idMso="FilePrintMac" enabled="false"/>
-    <command idMso="FilePrintQuick" enabled="false"/>
-    <command idMso="PrintPreviewAndPrint" enabled="false"/>
-    <command idMso="ApplicationOptionsDialog" enabled="false"/>
-    <command idMso="Duplicate" enabled="false"/>
-    <command idMso="FileDuplicate" enabled="false"/>
-    <command idMso="FileMove" enabled="false"/>
-  </commands>
-  <ribbon>
-    <backstage>
-      <tab idMso="TabSave" visible="false"/>
-      <tab idMso="TabPrint" visible="false"/>
-      <tab idMso="TabExport" visible="false"/>
-      <tab idMso="TabShare" visible="false"/>
-      <tab idMso="TabPublish" visible="false"/>
-    </backstage>
-  </ribbon>
-</customUI>'''
-
-        try:
-            with zipfile.ZipFile(input_path, 'r') as zin:
-                # Thu thập dữ liệu _rels/.rels trước
-                rels_data = None
-                if '_rels/.rels' in zin.namelist():
-                    rels_data = zin.read('_rels/.rels')
-
-                with zipfile.ZipFile(out_buf, 'w', zipfile.ZIP_DEFLATED) as zout:
-                    # Ghi _rels/.rels ĐẦU TIÊN với relationship customUI đã chèn
-                    if rels_data:
-                        rels_str = rels_data.decode('utf-8')
-                        # Xóa mọi khai báo quan hệ customUI cũ nếu có
-                        rels_str = re.sub(r'<Relationship[^>]*customUI[^>]*/>', '', rels_str)
-                        if '<Relationships' in rels_str:
-                            rel_tag1 = '<Relationship Id="rIdCustomUI" Type="http://schemas.microsoft.com/office/2006/relationships/ui/extensibility" Target="customUI/customUI.xml"/>'
-                            rel_tag2 = '<Relationship Id="rIdCustomUI14" Type="http://schemas.microsoft.com/office/2007/relationships/ui/extensibility" Target="customUI/customUI14.xml"/>'
-                            rels_str = rels_str.replace('</Relationships>', rel_tag1 + rel_tag2 + '</Relationships>')
-                        zout.writestr('_rels/.rels', rels_str.encode('utf-8'))
-                    else:
-                        # Tạo _rels/.rels mặc định nếu không có
-                        default_rels = b'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
-<Relationship Id="rIdCustomUI" Type="http://schemas.microsoft.com/office/2006/relationships/ui/extensibility" Target="customUI/customUI.xml"/>
-<Relationship Id="rIdCustomUI14" Type="http://schemas.microsoft.com/office/2007/relationships/ui/extensibility" Target="customUI/customUI14.xml"/>
-</Relationships>'''
-                        zout.writestr('_rels/.rels', default_rels)
-
-                    # Ghi customUI files
-                    zout.writestr('customUI/customUI.xml', custom_ui_2007)
-                    zout.writestr('customUI/customUI14.xml', custom_ui_2010)
-
-                    # Ghi các file còn lại
-                    for item in zin.infolist():
-                        # Bỏ qua _rels/.rels (đã ghi ở trên)
-                        if item.filename == '_rels/.rels':
-                            continue
-                        # Bỏ qua fonts nhúng để tránh cảnh báo Font trên Mac
-                        if item.filename.startswith('ppt/fonts/'):
-                            continue
-                        # Bỏ qua customUI cũ trong file gốc
-                        if 'customUI' in item.filename:
-                            continue
-                        # Xóa embedded fonts và triệt tiêu cờ nhúng phông trong presentation.xml
-                        if item.filename == 'ppt/presentation.xml':
-                            p_data = zin.read(item.filename).decode('utf-8')
-                            p_data = re.sub(r'<p:embeddedFontLst>.*?</p:embeddedFontLst>', '', p_data, flags=re.DOTALL | re.IGNORECASE)
-                            p_data = re.sub(r'<p:embeddedFontLst\b[^>]*/>', '', p_data, flags=re.IGNORECASE)
-                            p_data = re.sub(r'<p:embedTrueTypeFonts\b[^>]*>.*?</p:embedTrueTypeFonts>', '<p:embedTrueTypeFonts val="0"/>', p_data, flags=re.DOTALL | re.IGNORECASE)
-                            p_data = re.sub(r'<p:embedTrueTypeFonts\b[^>]*/>', '<p:embedTrueTypeFonts val="0"/>', p_data, flags=re.IGNORECASE)
-                            p_data = re.sub(r'<p:saveSubsetFonts\b[^>]*>.*?</p:saveSubsetFonts>', '', p_data, flags=re.DOTALL | re.IGNORECASE)
-                            p_data = re.sub(r'<p:saveSubsetFonts\b[^>]*/>', '', p_data, flags=re.IGNORECASE)
-                            zout.writestr(item, p_data.encode('utf-8'))
-                        # Xóa font relationships trong presentation.xml.rels
-                        elif item.filename == 'ppt/_rels/presentation.xml.rels':
-                            rels_str = zin.read(item.filename).decode('utf-8')
-                            rels_str = re.sub(r'<Relationship[^>]*relationships/font[^>]*/>', '', rels_str)
-                            zout.writestr(item, rels_str.encode('utf-8'))
-                        else:
-                            zout.writestr(item, zin.read(item.filename))
-        except Exception as e:
-            # Fallback: trả về nội dung file gốc nếu có lỗi
-            with open(input_path, 'rb') as f:
-                return f.read()
-
-        return out_buf.getvalue()
-
     def init_t1(self):
         card = self.build_card(self.frames["tab1"], "Bọc Thép Bài Giảng", "Đóng gói an toàn các tệp PowerPoint trước khi gửi cho học viên Mac.")
         self.filepath_var = ctk.StringVar()
@@ -255,16 +96,73 @@ class AuthorApp(ctk.CTk):
         btn_browse = ctk.CTkButton(row, text="Duyệt...", font=ctk.CTkFont(family="Inter", size=14, weight="bold"), command=self.sel_p, fg_color="#27272A", hover_color="#3F3F46", text_color="#FFFFFF", height=55, width=100, corner_radius=12)
         btn_browse.pack(side="right")
         
-        btn_build = ctk.CTkButton(card, text="⚡ Khởi Tạo App Phân Phối", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#10B981", hover_color="#059669", text_color="#FFFFFF", height=60, corner_radius=16, command=self.pack_mac)
-        btn_build.pack(pady=(40, 20), padx=50, fill="x")
+        btn_build = ctk.CTkButton(card, text="⚡ Khởi Tạo App Phân Phối (Gói Khóa Học)", font=ctk.CTkFont(family="Inter", size=15, weight="bold"), fg_color="#10B981", hover_color="#059669", text_color="#FFFFFF", height=52, corner_radius=14, command=self.pack_mac)
+        btn_build.pack(pady=(20, 10), padx=50, fill="x")
+
+        btn_lock_single = ctk.CTkButton(card, text="🔒 Khóa Mã Hóa File PPTX Lẻ (Gán Mã Lỗi SlideLock)", font=ctk.CTkFont(family="Inter", size=15, weight="bold"), fg_color="#6366F1", hover_color="#4F46E5", text_color="#FFFFFF", height=50, corner_radius=14, command=self.lock_single_files)
+        btn_lock_single.pack(pady=(0, 20), padx=50, fill="x")
 
     def sel_p(self):
         pths = filedialog.askopenfilenames(filetypes=[("PPTX", "*.pptx")])
         if pths: self.filepath_var.set(";".join(pths))
 
+    def lock_single_files(self):
+        raw_val = self.filepath_var.get()
+        p_pths = [p.strip() for p in raw_val.split(';') if p.strip()]
+        if not p_pths: return messagebox.showerror("Lỗi", "Chưa chọn file!")
+        try:
+            aesgcm = AESGCM(b"12345678901234567890123456789012")
+            locked_count = 0
+            out_files = []
+            for p_pth in p_pths:
+                if not os.path.exists(p_pth): continue
+                with open(p_pth, "rb") as f_in:
+                    raw_data = f_in.read()
+                
+                # Tránh khóa lặp lại nếu file đã có header magic của SlideLock
+                if raw_data.startswith(b"SLIDELOCK_ENCRYPTED_FILE_V1"):
+                    continue
+                
+                nonce = os.urandom(12)
+                enc = aesgcm.encrypt(nonce, raw_data, None)
+                payload = nonce + enc
+                
+                header = (
+                    "SLIDELOCK_ENCRYPTED_FILE_V1\n"
+                    "[ERROR_CODE: 0xSL-E994-UNAUTHORIZED_SAVE_AS_DETECTED]\n"
+                    "================================================================================\n"
+                    "⚠️ CẢNH BÁO BẢO MẬT BẢN QUYỀN SLIDELOCK:\n"
+                    "MÃ LỖI (ERROR CODE): 0xSL-E994-UNAUTHORIZED_SAVE_AS_DETECTED\n"
+                    "TRẠNG THÁI: TỆP BÀI GIẢNG ĐÃ BỊ KHÓA BẢN QUYỀN DO PHÁT HIỆN LƯU / SAVE AS TRÁI PHÉP.\n"
+                    "THÔNG BÁO: Tệp này không thể mở bằng Microsoft PowerPoint thông thường.\n"
+                    "BẮT BUỘC PHẢI MỞ THÔNG QUA ỨNG DỤNG SLIDELOCK ĐÃ ĐƯỢC CẤP KEY HỢP LỆ.\n"
+                    f"THỜI GIAN KHÓA: {datetime.now().isoformat()}\n"
+                    "================================================================================\n"
+                    "---SLIDELOCK_PAYLOAD_BEGIN---\n"
+                ).encode('utf-8')
+                
+                dirname = os.path.dirname(p_pth)
+                base = os.path.splitext(os.path.basename(p_pth))[0]
+                out_path = os.path.join(dirname, f"{base}_locked.pptx")
+                with open(out_path, "wb") as f_out:
+                    f_out.write(header + payload)
+                locked_count += 1
+                out_files.append(os.path.basename(out_path))
+                
+            if locked_count > 0:
+                files_str = "\n".join(out_files[:5])
+                if len(out_files) > 5:
+                    files_str += f"\n... và {len(out_files) - 5} tệp khác"
+                messagebox.showinfo("Thành Công", f"Đã mã hóa và gán mã lỗi SlideLock cho {locked_count} tệp!\n\nDanh sách:\n{files_str}\n\nKhi khách hàng mở trực tiếp bằng PowerPoint thông thường, máy sẽ báo lỗi không mở được. Bắt buộc phải mở qua app SlideLock!")
+            else:
+                messagebox.showwarning("Thông Báo", "Không có tệp nào mới được mã hóa (các tệp có thể đã được khóa từ trước).")
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
+
     def pack_mac(self):
-        p_pths = self.filepath_var.get().split(';')
-        if not p_pths or not p_pths[0]: return messagebox.showerror("Lỗi", "Chưa chọn file!")
+        raw_val = self.filepath_var.get()
+        p_pths = [p.strip() for p in raw_val.split(';') if p.strip()]
+        if not p_pths: return messagebox.showerror("Lỗi", "Chưa chọn file!")
         try:
             mz = io.BytesIO()
             manifest = {}
@@ -273,9 +171,8 @@ class AuthorApp(ctk.CTk):
                     orig_name = os.path.basename(p_pth)
                     safe_name = f"lesson_{idx}.pptx"
                     
-                    # Inject customUI XML to disable Save As
-                    protected_data = self.protect_pptx(p_pth)
-                    zf.writestr(safe_name, protected_data)
+                    with open(p_pth, 'rb') as f_pptx:
+                        zf.writestr(safe_name, f_pptx.read())
                     
                     manifest[safe_name] = orig_name
                 zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False).encode('utf-8'))
@@ -312,7 +209,7 @@ class AuthorApp(ctk.CTk):
                         z_info_cmd = zipfile.ZipInfo(f"{base_folder}MoKhoaHoc.command")
                         z_info_cmd.create_system = 3
                         z_info_cmd.external_attr = (0x81ED) << 16 # executable
-                        with open("MoKhoaHoc.command", "rb") as f_in: zf.writestr(z_info_cmd, f_in.read())
+                        with open("MoKhoaHoc.command", "rb") as f_in: zf.writestr(z_info_cmd, f_in.read().replace(b"\r\n", b"\n"))
                     
                     
                     # Zip the untampered SlideLock.app preserving its exact signature
@@ -336,13 +233,13 @@ class AuthorApp(ctk.CTk):
                                 z_info.external_attr = (0x81A4) << 16 # rw-r--r--
                             with open(fp, "rb") as f_in: zf.writestr(z_info, f_in.read())
                 os.remove("baigiang.khoa")
-                messagebox.showinfo("Thành Công", f"Đã xuất xong gói {out_name} siêu bảo mật!")
+                messagebox.showinfo("Thành Công", f"Đã xuất xong gói {out_name} siêu bảo mật!\n\nĐường dẫn tệp:\n{os.path.abspath(out_name)}")
             else:
                 messagebox.showwarning("Cảnh Báo", "Phiên bản này chỉ xuất file .khoa vì chưa có thư mục app vỏ hệ thống.")
         except Exception as e: messagebox.showerror("Lỗi", str(e))
 
     def _generate_hmac_key(self, u):
-        raw = f"{u}".encode('utf-8')
+        raw = f"{u.strip().upper()}".encode('utf-8')
         sig = hmac.new(b"12345678901234567890123456789012", raw, hashlib.sha256).digest()
         num = int.from_bytes(sig[:8], byteorder='big')
         code = str(num % 1000000000000).zfill(12)
@@ -352,7 +249,7 @@ class AuthorApp(ctk.CTk):
         card = self.build_card(self.frames["tab2"], "Cấp Quyền Truy Cập", "Sinh khóa duy nhất cho 1 máy tính đích.")
         self.eu = ctk.CTkEntry(card, height=55, placeholder_text="Nhập Machine ID của máy Apple...", font=ctk.CTkFont(family="Inter", size=15), fg_color="#09090B", border_color="#27272A", border_width=2, corner_radius=12, justify="center")
         self.eu.pack(pady=10, padx=60, fill="x")
-        ctk.CTkButton(card, text="TẠO CHÌA KHÓA DUY NHẤT", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#4F46E5", hover_color="#4338CA", command=lambda: self.txt_key.set(self._generate_hmac_key(self.eu.get().strip())), height=55, corner_radius=14).pack(pady=20, padx=60, fill="x")
+        ctk.CTkButton(card, text="TẠO CHÌA KHÓA DUY NHẤT", font=ctk.CTkFont(family="Inter", size=16, weight="bold"), fg_color="#4F46E5", hover_color="#4338CA", command=lambda: self.txt_key.set(self._generate_hmac_key(self.eu.get())), height=55, corner_radius=14).pack(pady=20, padx=60, fill="x")
         self.txt_key = ctk.StringVar()
         ctk.CTkEntry(card, textvariable=self.txt_key, height=65, font=ctk.CTkFont(family="Consolas", size=19, weight="bold"), justify='center', state='readonly', fg_color="#09090B", text_color="#10B981", border_color="#10B981", border_width=2, corner_radius=12).pack(pady=10, padx=60, fill="x")
 
@@ -362,7 +259,7 @@ class AuthorApp(ctk.CTk):
         self.eb.pack(pady=10, padx=60, fill="x")
         
         def ban_it():
-            u = self.eb.get().strip()
+            u = self.eb.get().strip().upper()
             if u:
                 db = self.get_db()
                 db[u] = 1 # Marking as banned
@@ -377,7 +274,7 @@ class AuthorApp(ctk.CTk):
         self.eau.pack(pady=10, padx=60, fill="x")
         
         def pardon_it():
-            u = self.eau.get().strip()
+            u = self.eau.get().strip().upper()
             if u:
                 db = self.get_db()
                 if u in db:

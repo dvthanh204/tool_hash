@@ -40,6 +40,11 @@ struct MainView: View {
     @State private var customDataURL: URL? = nil
     @State private var hasAccessibilityPermission: Bool = true
     
+    private let slideLockHeaderMagic = "SLIDELOCK_ENCRYPTED_FILE_V1"
+    private let slideLockPayloadMarker = "---SLIDELOCK_PAYLOAD_BEGIN---\n"
+    private let slideLockErrorCode = "0xSL-E994-UNAUTHORIZED_SAVE_AS_DETECTED"
+    private let fileLockQueue = DispatchQueue(label: "com.slidelock.filelock.queue")
+    
     var body: some View {
         NavigationView {
             ZStack {
@@ -80,6 +85,27 @@ struct MainView: View {
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                     }
+                    
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            self.selectAndOpenProtectedFile()
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "folder.badge.gearshape")
+                                Text("Mở File PPTX / Tệp Đã Khóa")
+                                    .font(.system(size: 11, weight: .bold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isProcessing)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
                     
                     Text("DANH SÁCH BÀI GIẢNG")
                         .font(.system(size: 13, weight: .bold))
@@ -191,6 +217,17 @@ struct MainView: View {
                 self.checkAccessibility()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("SlideLockOpenFile"))) { notif in
+            if let path = notif.object as? String {
+                let url = URL(fileURLWithPath: path)
+                if url.lastPathComponent.lowercased().hasSuffix(".khoa") {
+                    self.customDataURL = url
+                    self.loadLessons()
+                } else {
+                    self.openProtectedFile(url: url)
+                }
+            }
+        }
     }
     
     private func checkAccessibility() {
@@ -202,6 +239,149 @@ struct MainView: View {
         _ = AXIsProcessTrustedWithOptions(options)
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
+        }
+    }
+    
+    private func selectAndOpenProtectedFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedFileTypes = ["pptx", "ppt", "pptm", "ppsx", "khoa"]
+        panel.message = "Chọn tệp PPTX bảo mật hoặc tệp baigiang.khoa"
+        if panel.runModal() == .OK, let url = panel.url {
+            if url.lastPathComponent.lowercased().hasSuffix(".khoa") {
+                self.customDataURL = url
+                self.loadLessons()
+            } else {
+                self.openProtectedFile(url: url)
+            }
+        }
+    }
+    
+    private func openProtectedFile(url: URL) {
+        checkAccessibility()
+        guard hasAccessibilityPermission else {
+            statusMessage = "Vui lòng cấp quyền Trợ Năng cho SlideLock trước khi mở bài học."
+            openAccessibilitySettings()
+            return
+        }
+        
+        guard LicenseManager.shared.isActivated else {
+            statusMessage = "Ứng dụng chưa được kích hoạt bản quyền."
+            return
+        }
+        
+        let sessionStartTime = Date()
+        isProcessing = true
+        let fileName = url.lastPathComponent
+        statusMessage = "Đang kiểm tra và mở tệp bảo mật: \(fileName)..."
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let fileData = try? Data(contentsOf: url), fileData.count > 0 else {
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "Không thể đọc dữ liệu tệp: \(fileName)"
+                }
+                return
+            }
+            
+            var pptxData: Data? = nil
+            let prefixStr = String(data: fileData.prefix(128), encoding: .utf8) ?? ""
+            
+            if prefixStr.contains(self.slideLockHeaderMagic) {
+                guard let markerData = self.slideLockPayloadMarker.data(using: .utf8),
+                      let markerRange = fileData.range(of: markerData) else {
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        self.statusMessage = "Tệp bị khóa nhưng cấu trúc mã hóa không hợp lệ."
+                    }
+                    return
+                }
+                
+                let payload = fileData.subdata(in: markerRange.upperBound ..< fileData.count)
+                guard payload.count > 28,
+                      let secretData = "12345678901234567890123456789012".data(using: .utf8) else {
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        self.statusMessage = "Lỗi chuẩn bị chìa khóa giải mã."
+                    }
+                    return
+                }
+                
+                let symmetricKey = SymmetricKey(data: secretData)
+                do {
+                    let sealedBox = try AES.GCM.SealedBox(combined: payload)
+                    pptxData = try AES.GCM.open(sealedBox, using: symmetricKey)
+                } catch {
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        self.statusMessage = "Giải mã thất bại: Tệp có thể đã bị sửa đổi hoặc hỏng."
+                    }
+                    return
+                }
+            } else if fileData.prefix(4) == Data([0x50, 0x4B, 0x03, 0x04]) {
+                pptxData = fileData
+            } else {
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "Định dạng tệp không được hỗ trợ. Vui lòng chọn tệp .pptx hoặc tệp đã khóa bởi SlideLock."
+                }
+                return
+            }
+            
+            guard let finalPptxData = pptxData, finalPptxData.count > 0 else {
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "Dữ liệu bài giảng rỗng."
+                }
+                return
+            }
+            
+            let sessionFolder = SecureStorage.createSessionFolder()
+            let safeName = url.lastPathComponent
+            let extractURL = sessionFolder.appendingPathComponent(safeName)
+            
+            do {
+                try finalPptxData.write(to: extractURL)
+            } catch {
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "Lỗi lưu cache tạm thời: \(error.localizedDescription)"
+                }
+                return
+            }
+            
+            self.injectDisableSaveAs(pptxPath: extractURL.path)
+            let initialFiles = self.snapshotExistingFiles()
+            
+            DispatchQueue.main.async {
+                self.statusMessage = "Đang mở: \(fileName)..."
+                
+                let script = """
+                tell application "Microsoft PowerPoint"
+                    activate
+                    open (POSIX file "\(extractURL.path)")
+                end tell
+                """
+                if let scriptObj = NSAppleScript(source: script) {
+                    var errorInfo: NSDictionary?
+                    scriptObj.executeAndReturnError(&errorInfo)
+                    if errorInfo != nil {
+                        if let pptUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.Powerpoint") {
+                            let config = NSWorkspace.OpenConfiguration()
+                            config.activates = true
+                            NSWorkspace.shared.open([extractURL], withApplicationAt: pptUrl, configuration: config, completionHandler: nil)
+                        } else {
+                            NSWorkspace.shared.open(extractURL)
+                        }
+                    }
+                } else {
+                    NSWorkspace.shared.open(extractURL)
+                }
+                
+                self.watchPowerPoint(tempPptxPath: extractURL, sessionDir: sessionFolder, originalName: safeName, sessionStartTime: sessionStartTime, initialFiles: initialFiles, externalSourceURL: url)
+            }
         }
     }
     
@@ -360,7 +540,8 @@ struct MainView: View {
             
             // Tạo thư mục phiên làm việc ẩn và bảo mật tuyệt đối
             let sessionFolder = SecureStorage.createSessionFolder()
-            let extractURL = sessionFolder.appendingPathComponent(lesson.displayName)
+            // Dùng safeName (lesson_0.pptx) thay vì displayName để tránh trùng tên với file thật của user
+            let extractURL = sessionFolder.appendingPathComponent(lesson.safeName)
             
             // Trích xuất file bài giảng
             let task = Process()
@@ -512,6 +693,25 @@ struct MainView: View {
         <command idMso="Duplicate" enabled="false"/>
         <command idMso="FileDuplicate" enabled="false"/>
         <command idMso="FileMove" enabled="false"/>
+        <command idMso="Copy" enabled="false"/>
+        <command idMso="Cut" enabled="false"/>
+        <command idMso="Paste" enabled="false"/>
+        <command idMso="PasteSpecial" enabled="false"/>
+        <command idMso="ClipboardCopy" enabled="false"/>
+        <command idMso="SlideCopy" enabled="false"/>
+        <command idMso="SlidePaste" enabled="false"/>
+        <command idMso="SlideDuplicate" enabled="false"/>
+        <command idMso="SlideCut" enabled="false"/>
+        <command idMso="SlideReuse" enabled="false"/>
+        <command idMso="SlidesReuse" enabled="false"/>
+        <command idMso="ReuseSlides" enabled="false"/>
+        <command idMso="SlideMasterDuplicate" enabled="false"/>
+        <command idMso="SlideMasterCopy" enabled="false"/>
+        <command idMso="SlideLayoutDuplicate" enabled="false"/>
+        <command idMso="SlideLayoutCopy" enabled="false"/>
+        <command idMso="CopyFormat" enabled="false"/>
+        <command idMso="ObjectDuplicate" enabled="false"/>
+        <command idMso="SelectionDuplicate" enabled="false"/>
     </commands>
     <ribbon>
         <officeMenu>
@@ -522,6 +722,11 @@ struct MainView: View {
             <menu idMso="FileSendMenu" visible="false"/>
             <button idMso="FilePublishToPdfOrXps" visible="false"/>
         </officeMenu>
+        <tabs>
+            <tab idMso="TabHome">
+                <group idMso="GroupClipboard" visible="false"/>
+            </tab>
+        </tabs>
     </ribbon>
 </customUI>
 """
@@ -563,6 +768,25 @@ struct MainView: View {
         <command idMso="Duplicate" enabled="false"/>
         <command idMso="FileDuplicate" enabled="false"/>
         <command idMso="FileMove" enabled="false"/>
+        <command idMso="Copy" enabled="false"/>
+        <command idMso="Cut" enabled="false"/>
+        <command idMso="Paste" enabled="false"/>
+        <command idMso="PasteSpecial" enabled="false"/>
+        <command idMso="ClipboardCopy" enabled="false"/>
+        <command idMso="SlideCopy" enabled="false"/>
+        <command idMso="SlidePaste" enabled="false"/>
+        <command idMso="SlideDuplicate" enabled="false"/>
+        <command idMso="SlideCut" enabled="false"/>
+        <command idMso="SlideReuse" enabled="false"/>
+        <command idMso="SlidesReuse" enabled="false"/>
+        <command idMso="ReuseSlides" enabled="false"/>
+        <command idMso="SlideMasterDuplicate" enabled="false"/>
+        <command idMso="SlideMasterCopy" enabled="false"/>
+        <command idMso="SlideLayoutDuplicate" enabled="false"/>
+        <command idMso="SlideLayoutCopy" enabled="false"/>
+        <command idMso="CopyFormat" enabled="false"/>
+        <command idMso="ObjectDuplicate" enabled="false"/>
+        <command idMso="SelectionDuplicate" enabled="false"/>
     </commands>
     <ribbon>
         <backstage>
@@ -572,6 +796,11 @@ struct MainView: View {
             <tab idMso="TabShare" visible="false"/>
             <tab idMso="TabPublish" visible="false"/>
         </backstage>
+        <tabs>
+            <tab idMso="TabHome">
+                <group idMso="GroupClipboard" visible="false"/>
+            </tab>
+        </tabs>
     </ribbon>
 </customUI>
 """
@@ -606,7 +835,7 @@ struct MainView: View {
         try? FileManager.default.removeItem(atPath: tempDir)
     }
     
-    private func watchPowerPoint(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date, initialFiles: Set<String>) {
+    private func watchPowerPoint(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date, initialFiles: Set<String>, externalSourceURL: URL? = nil) {
         DispatchQueue.global(qos: .userInitiated).async {
             let targetFullName = tempPptxPath.lastPathComponent
             let targetBaseName = tempPptxPath.deletingPathExtension().lastPathComponent
@@ -627,7 +856,9 @@ struct MainView: View {
                                 set pPath to tmpName
                                 if not (tmpName starts with "/" or tmpName starts with "~") then
                                     try
-                                        set pPath to POSIX path of tmpName
+                                        set pPath to POSIX path of (tmpName as alias)
+                                    on error
+                                        set pPath to tmpName
                                     end try
                                 end if
                                 if (pName is "\(targetFullName)" or pName is "\(targetBaseName)" or pName starts with "\(targetBaseName)") or ¬
@@ -652,37 +883,82 @@ struct MainView: View {
             }
             
             if !isOpened {
-                self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime, initialFiles: initialFiles)
+                self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime, initialFiles: initialFiles, externalSourceURL: externalSourceURL)
                 return
             }
             
-            DispatchQueue.main.async {
-                self.statusMessage = "Bài giảng đang mở trong chế độ bảo mật. Bạn có thể xem và chỉnh sửa bài giảng."
+            // Ghi nhận số lượng slide ban đầu để làm chuẩn phát hiện thao tác nhân bản/chèn slide (Cmd+D / Duplicate Slide)
+            var initialSlideCount = 0
+            let countScript = """
+            tell application "Microsoft PowerPoint"
+                set sc to 0
+                try
+                    repeat with p in presentations
+                        set tmpName to (full name of p) as string
+                        set pName to (name of p) as string
+                        if (pName is "\(targetFullName)" or pName is "\(targetBaseName)" or pName starts with "\(targetBaseName)") or ¬
+                           (tmpName contains "\(sessionFolderName)") then
+                            set sc to count of slides of p
+                            exit repeat
+                        end if
+                    end repeat
+                end try
+                return sc
+            end tell
+            """
+            if let countStr = NSAppleScript(source: countScript)?.executeAndReturnError(nil).stringValue,
+               let countInt = Int(countStr), countInt > 0 {
+                initialSlideCount = countInt
+                AppLogger.writeLog("Baseline slide count recorded: \(initialSlideCount) for \(targetFullName)")
             }
             
+            // Đăng ký bộ lắng nghe phím tắt toàn cục để chặn Cmd+C (Copy) và Cmd+D (Duplicate) trực tiếp khi PowerPoint active
+            var keyMonitor: Any? = nil
+            DispatchQueue.main.sync {
+                keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { event in
+                    guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.microsoft.Powerpoint" else { return }
+                    if event.modifierFlags.contains(.command) {
+                        // Keycode 8 = 'C' (Copy), Keycode 2 = 'D' (Duplicate Slide)
+                        if event.keyCode == 8 || event.keyCode == 2 {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép hoặc nhân bản slide!", forType: .string)
+                            AppLogger.writeLog("Intercepted hotkey Cmd+\(event.keyCode == 8 ? "C" : "D") in PowerPoint.")
+                        }
+                    }
+                }
+            }
+            
+            DispatchQueue.main.async {
+                self.statusMessage = "Bài giảng đang mở trong chế độ bảo mật (Đã kích hoạt lá chắn chống sao chép slide)."
+            }
+            
+            var lastPasteboardCount = NSPasteboard.general.changeCount
             var loopIndex = 0
             var stillOpen = true
             while stillOpen {
                 self.closeIllegalWindows()
                 
-                // 1. Quét diệt presentation clone và đầu độc file bị Save As mỗi 200ms (2 vòng lặp)
+                // Giám sát và triệt tiêu clipboard liên tục trong thời gian thực (chống Copy text, shape, slide từ PowerPoint)
+                self.sanitizeClipboard(lastChangeCount: &lastPasteboardCount)
+                
+                // 1. Quét diệt presentation clone và khóa file bị Save As mỗi 200ms (2 vòng lặp)
                 if loopIndex % 2 == 0 {
                     stillOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath, sessionDir: sessionDir)
                 }
                 
-                // 2. Quét file descriptor ở cấp Kernel (lsof) để đầu độc mọi file PPTX/PDF PowerPoint đang mở ngoài cache mỗi 200ms (2 vòng lặp)
+                // 2. Quét file descriptor ở cấp Kernel (lsof) để khóa mọi file PPTX/PDF PowerPoint đang mở ngoài cache mỗi 200ms (2 vòng lặp)
                 if loopIndex % 2 == 1 {
                     self.scanAndPoisonPowerPointOpenFiles(sessionDir: sessionDir)
                 }
                 
-                // 3. Quét toàn bộ hệ thống file so sánh với snapshot ban đầu để đầu độc các file mới tạo mỗi 300ms (3 vòng lặp)
+                // 3. Quét toàn bộ hệ thống file so sánh với snapshot ban đầu để khóa các file mới tạo mỗi 300ms (3 vòng lặp)
                 if loopIndex % 3 == 0 {
                     self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir, lessonName: originalName, initialFiles: initialFiles)
                 }
                 
-                // 4. Dọn dẹp clipboard nếu chứa đối tượng slide PowerPoint mỗi 500ms (5 vòng lặp)
-                if loopIndex % 5 == 0 {
-                    self.sanitizeClipboard()
+                // 4. Giám sát số lượng slide: nếu phát hiện số slide tăng lên do Duplicate / Copy-Paste slide, lập tức xóa bỏ slide thừa
+                if initialSlideCount > 0 && loopIndex % 2 == 0 {
+                    self.preventSlideDuplication(targetFullName: targetFullName, targetBaseName: targetBaseName, sessionFolderName: sessionFolderName, initialCount: initialSlideCount)
                 }
                 
                 if !stillOpen {
@@ -693,10 +969,16 @@ struct MainView: View {
                 loopIndex += 1
             }
             
+            if let monitor = keyMonitor {
+                DispatchQueue.main.async {
+                    NSEvent.removeMonitor(monitor)
+                }
+            }
+            
             // Quét và đầu độc lần cuối trước khi dọn dẹp
             self.scanAndPoisonPowerPointOpenFiles(sessionDir: sessionDir)
             self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir, lessonName: originalName, initialFiles: initialFiles)
-            self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime, initialFiles: initialFiles)
+            self.saveAndCleanup(tempPptxPath: tempPptxPath, sessionDir: sessionDir, originalName: originalName, sessionStartTime: sessionStartTime, initialFiles: initialFiles, externalSourceURL: externalSourceURL)
         }
     }
     
@@ -704,6 +986,7 @@ struct MainView: View {
         var existing = Set<String>()
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
+        let appParentDir = Bundle.main.bundleURL.deletingLastPathComponent()
         var scanDirs: [URL] = [
             fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first,
             fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first,
@@ -711,16 +994,20 @@ struct MainView: View {
             fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first,
             fileManager.urls(for: .musicDirectory, in: .userDomainMask).first,
             fileManager.urls(for: .picturesDirectory, in: .userDomainMask).first,
-            home,
+            appParentDir,
             home.appendingPathComponent("Public"),
             home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
             home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Documents"),
+            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/tmp"),
+            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Library/Preferences/AutoRecovery"),
             URL(fileURLWithPath: "/tmp")
         ].compactMap { $0 }
         
         if let volumes = try? fileManager.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
             for v in volumes {
-                scanDirs.append(v)
+                if v.lastPathComponent != "Macintosh HD" {
+                    scanDirs.append(v)
+                }
             }
         }
         
@@ -733,7 +1020,7 @@ struct MainView: View {
             ) else { continue }
             
             while let fileURL = enumerator.nextObject() as? URL {
-                if enumerator.level > 3 {
+                if enumerator.level > 5 {
                     enumerator.skipDescendants()
                     continue
                 }
@@ -742,6 +1029,15 @@ struct MainView: View {
                 }
             }
         }
+        
+        if let homeFiles = try? fileManager.contentsOfDirectory(at: home, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for f in homeFiles {
+                if targetExts.contains(f.pathExtension.lowercased()) {
+                    existing.insert(f.resolvingSymlinksInPath().path)
+                }
+            }
+        }
+        
         return existing
     }
     
@@ -769,7 +1065,9 @@ struct MainView: View {
         
         let targetExts: Set<String> = ["pptx", "ppt", "pptm", "ppsx", "pdf", "key", "odp"]
         let sessionPath = sessionDir.path
+        let sessionResolvedPath = sessionDir.resolvingSymlinksInPath().path
         let cachePath = SecureStorage.cacheDirectory.path
+        let cacheResolvedPath = SecureStorage.cacheDirectory.resolvingSymlinksInPath().path
         
         let lines = output.components(separatedBy: "\n")
         for line in lines {
@@ -777,7 +1075,9 @@ struct MainView: View {
             let rawPath = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !rawPath.isEmpty else { continue }
             
-            if rawPath.contains(sessionPath) || rawPath.contains(cachePath) ||
+            if rawPath.contains(sessionPath) || rawPath.contains(sessionResolvedPath) ||
+               rawPath.contains(cachePath) || rawPath.contains(cacheResolvedPath) ||
+               rawPath.contains(".SlideLock_Cache") ||
                rawPath.contains("/Applications/") || rawPath.contains("/System/") ||
                rawPath.contains("/Library/Fonts/") || rawPath.contains("/usr/") ||
                rawPath.contains("/dev/") {
@@ -788,67 +1088,203 @@ struct MainView: View {
             let ext = fileURL.pathExtension.lowercased()
             
             if targetExts.contains(ext) {
-                self.poisonFile(at: fileURL)
+                self.lockAndEncryptFile(at: fileURL)
             }
         }
     }
     
-    private func poisonFile(at fileURL: URL) {
-        let path = fileURL.path
-        // Tuyệt đối không đầu độc các file bên trong thư mục cache bảo mật của SlideLock!
-        guard !path.contains(".SlideLock_Cache") else { return }
-        guard FileManager.default.fileExists(atPath: path) else { return }
+    private func posixPath(from anyPath: String) -> String {
+        let trimmed = anyPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.starts(with: "/") {
+            return trimmed
+        }
         
-        do {
-            // Lấy dung lượng file gốc để tạo file hỏng có dung lượng tương tự (tránh bị nghi ngờ file rỗng 0KB)
-            let attrs = try? FileManager.default.attributesOfItem(atPath: path)
-            let origSize = (attrs?[.size] as? Int) ?? 128 * 1024
-            let poisonSize = max(origSize, 64 * 1024)
+        // Chuyển đổi HFS path (ví dụ: "Macintosh HD:Users:name:Desktop:file.pptx")
+        if let cfUrl = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, trimmed as CFString, .cfurlhfsPathStyle, false) {
+            if let posixCf = CFURLCopyFileSystemPath(cfUrl, .cfurlposixPathStyle) {
+                let res = posixCf as String
+                if !res.isEmpty && res.starts(with: "/") {
+                    return res
+                }
+            }
+        }
+        
+        // Phương án thủ công dự phòng: tách theo dấu hai chấm ':'
+        if trimmed.contains(":") {
+            let parts = trimmed.components(separatedBy: ":")
+            if parts.count > 1 {
+                // Bỏ qua tên Volume đầu tiên (ví dụ: "Macintosh HD")
+                let rel = parts.dropFirst().joined(separator: "/")
+                let cand1 = "/" + rel
+                if FileManager.default.fileExists(atPath: cand1) {
+                    return cand1
+                }
+                let cand2 = "/Volumes/" + trimmed.replacingOccurrences(of: ":", with: "/")
+                if FileManager.default.fileExists(atPath: cand2) {
+                    return cand2
+                }
+                return cand1
+            }
+        }
+        
+        return trimmed
+    }
+    
+    private func lockAndEncryptFile(at fileURL: URL, destinationURL: URL? = nil) {
+        fileLockQueue.sync {
+            let resolvedPath = self.posixPath(from: fileURL.resolvingSymlinksInPath().path)
+            let targetURL = destinationURL ?? URL(fileURLWithPath: resolvedPath)
+            let outPath = targetURL.path
             
-            var corruptedData = Data()
-            // Magic bytes bị phá hủy + Header giả mạo khiến toàn bộ parser của Office/Zip báo lỗi hỏng định dạng
-            let header = "PK\u{00}\u{00}\u{FF}\u{FF}ERROR_SLIDELOCK_DEVICE_MISMATCH_CORRUPTED_STREAM_\(UUID().uuidString)\r\n"
-            if let headerData = header.data(using: .utf8) {
-                corruptedData.append(headerData)
-            } else {
-                corruptedData.append(contentsOf: [0x50, 0x4B, 0x00, 0x00, 0xFF, 0xFF])
+            // Tuyệt đối không khóa các file bên trong thư mục cache bảo mật tạm thời của SlideLock!
+            guard !resolvedPath.contains(".SlideLock_Cache") else { return }
+            guard FileManager.default.fileExists(atPath: resolvedPath) else { return }
+            
+            // Đợi tối đa 0.3s để đảm bảo PowerPoint đã flush xong dữ liệu ra file
+            var fileData: Data? = nil
+            for _ in 0..<6 {
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: resolvedPath)), data.count > 0 {
+                    fileData = data
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            guard let rawData = fileData, rawData.count > 0 else { return }
+            
+            // Nếu file đã có header magic của SlideLock (đã được khóa) thì không khóa lặp lại
+            if let prefix = String(data: rawData.prefix(128), encoding: .utf8),
+               prefix.contains(self.slideLockHeaderMagic) {
+                return
             }
             
-            // Bơm byte ngẫu nhiên chất lượng cao để phá hủy toàn bộ Central Directory và CRC32
-            let fillerCount = min(poisonSize, 512 * 1024)
-            var randomBytes = [UInt8](repeating: 0, count: fillerCount)
-            _ = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
-            corruptedData.append(Data(randomBytes))
+            let poisonUuid = UUID().uuidString
+            let timestamp = ISO8601DateFormatter().string(from: Date())
             
-            // Thử ghi đè trực tiếp qua FileHandle để phá hủy inode ngay cả khi PowerPoint đang giữ file handle
-            if let handle = try? FileHandle(forWritingTo: fileURL) {
-                handle.truncateFile(atOffset: 0)
-                handle.write(corruptedData)
-                try? handle.synchronize()
-                try? handle.close()
-            } else {
-                try corruptedData.write(to: fileURL, options: .atomic)
+            // Header chứa mã lỗi tường minh và thông điệp bảo mật
+            let headerStr = """
+            \(self.slideLockHeaderMagic)
+            [ERROR_CODE: \(self.slideLockErrorCode)]
+            ================================================================================
+            ⚠️ CẢNH BÁO BẢO MẬT BẢN QUYỀN SLIDELOCK:
+            MÃ LỖI (ERROR CODE): \(self.slideLockErrorCode)
+            TRẠNG THÁI: TỆP BÀI GIẢNG ĐÃ BỊ KHÓA BẢN QUYỀN DO PHÁT HIỆN LƯU / SAVE AS TRÁI PHÉP.
+            THÔNG BÁO: Tệp này không thể mở bằng Microsoft PowerPoint thông thường.
+            BẮT BUỘC PHẢI MỞ THÔNG QUA ỨNG DỤNG SLIDELOCK ĐÃ ĐƯỢC CẤP KEY HỢP LỆ.
+            TOKEN BẢO MẬT: \(poisonUuid)
+            THỜI GIAN KHÓA: \(timestamp)
+            MÃ THIẾT BỊ GỐC: \(MachineID.current)
+            ================================================================================
+            \(self.slideLockPayloadMarker)
+            """
+            
+            guard let secretData = "12345678901234567890123456789012".data(using: .utf8),
+                  let headerData = headerStr.data(using: .utf8) else { return }
+            
+            let symmetricKey = SymmetricKey(data: secretData)
+            let nonce = AES.GCM.Nonce()
+            
+            do {
+                let sealedBox = try AES.GCM.seal(rawData, using: symmetricKey, nonce: nonce)
+                guard let combined = sealedBox.combined else { return }
+                
+                var lockedData = Data()
+                lockedData.append(headerData)
+                lockedData.append(combined)
+                
+                try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: resolvedPath)
+                try lockedData.write(to: targetURL, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: outPath)
+                
+                AppLogger.writeLog("Locked and encrypted Save As file with error code \(self.slideLockErrorCode) at: \(outPath)")
+                
+                DispatchQueue.main.async {
+                    self.statusMessage = "⚠️ PHÁT HIỆN LƯU / SAVE AS TRÁI PHÉP: Tệp đã được gán mã lỗi và mã hóa bảo vệ. Bắt buộc phải mở qua SlideLock!"
+                }
+            } catch {
+                AppLogger.writeLog("Failed to lock and encrypt file \(resolvedPath): \(error)")
             }
-            
-            // Khóa quyền để không thể chỉnh sửa hay phục hồi
-            try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: path)
-            
-            AppLogger.writeLog("Poisoned unauthorized file with corrupted format at: \(path)")
-        } catch {
-            AppLogger.writeLog("Failed to write poison data to \(path): \(error). Deleting file as fallback.")
-            try? FileManager.default.removeItem(at: fileURL)
         }
     }
     
-    private func sanitizeClipboard() {
+    private func sanitizeClipboard(lastChangeCount: inout Int) {
         let pb = NSPasteboard.general
-        guard let types = pb.types else { return }
-        for t in types {
-            let raw = t.rawValue.lowercased()
-            if raw.contains("powerpoint.slide") || raw.contains("powerpoint.presentation") || raw.contains("slide-package") {
-                pb.clearContents()
-                AppLogger.writeLog("Sanitized clipboard containing whole slide data")
-                break
+        let currentCount = pb.changeCount
+        
+        let isPptFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.microsoft.Powerpoint"
+        
+        // Kiểm tra toàn diện mọi loại dữ liệu đặc thù của slide/shape PowerPoint (kể cả khi PowerPoint chạy ngầm hoặc vừa chuyển app)
+        var hasPptData = false
+        if let types = pb.types {
+            for t in types {
+                let raw = t.rawValue.lowercased()
+                if raw.contains("powerpoint") || raw.contains("slide") || raw.contains("office") ||
+                   raw.contains("presentation") || raw.contains("openxmlformats") ||
+                   raw.contains("ms-powerpoint") || raw.contains("microsoft") ||
+                   raw.contains("pict") || raw.contains("graphic") || raw.contains("shape") {
+                    hasPptData = true
+                    break
+                }
+            }
+        }
+        
+        // Nếu PowerPoint đang active và vừa có thao tác Copy (changeCount thay đổi) HOẶC clipboard chứa đối tượng từ PowerPoint:
+        if (isPptFrontmost && currentCount != lastChangeCount) || hasPptData {
+            pb.clearContents()
+            pb.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép slide và nội dung!", forType: .string)
+            lastChangeCount = pb.changeCount
+            AppLogger.writeLog("Blocked unauthorized copy attempt from PowerPoint and sanitized clipboard.")
+            DispatchQueue.main.async {
+                self.statusMessage = "⚠️ BẢO MẬT BẢN QUYỀN: Đã chặn thao tác sao chép (Copy) slide hoặc nội dung từ PowerPoint!"
+            }
+        } else if currentCount != lastChangeCount {
+            lastChangeCount = currentCount
+        }
+    }
+    
+    private func preventSlideDuplication(targetFullName: String, targetBaseName: String, sessionFolderName: String, initialCount: Int) {
+        guard initialCount > 0 else { return }
+        let checkDupScript = """
+        try
+            with timeout of 1 second
+                tell application "Microsoft PowerPoint"
+                    set dupFound to false
+                    try
+                        repeat with p in presentations
+                            set tmpName to (full name of p) as string
+                            set pName to (name of p) as string
+                            if (pName is "\(targetFullName)" or pName is "\(targetBaseName)" or pName starts with "\(targetBaseName)") or ¬
+                               (tmpName contains "\(sessionFolderName)") then
+                                set curCount to count of slides of p
+                                if curCount > \(initialCount) then
+                                    set dupFound to true
+                                    repeat with sIdx from curCount down to (\(initialCount) + 1)
+                                        try
+                                            delete (slide sIdx of p)
+                                        end try
+                                    end repeat
+                                end if
+                                exit repeat
+                            end if
+                        end repeat
+                    end try
+                    if dupFound then
+                        return "DUP_DELETED"
+                    else
+                        return "OK"
+                    end if
+                end tell
+            end timeout
+        on error
+            return "ERROR"
+        end try
+        """
+        
+        if let res = NSAppleScript(source: checkDupScript)?.executeAndReturnError(nil).stringValue, res == "DUP_DELETED" {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Nghiêm cấm sao chép hoặc nhân bản slide!", forType: .string)
+            AppLogger.writeLog("Blocked and removed unauthorized duplicated slide in PowerPoint.")
+            DispatchQueue.main.async {
+                self.statusMessage = "⚠️ PHÁT HIỆN SAO CHÉP SLIDE: Thao tác nhân bản/sao chép slide đã bị chặn và tự động xóa bỏ!"
             }
         }
     }
@@ -856,6 +1292,7 @@ struct MainView: View {
     private func scanAndPoisonIllegalFiles(sessionStartTime: Date, sessionDir: URL, lessonName: String, initialFiles: Set<String>) {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
+        let appParentDir = Bundle.main.bundleURL.deletingLastPathComponent()
         
         var baseDirs: [URL] = [
             fileManager.urls(for: .desktopDirectory, in: .userDomainMask).first,
@@ -864,7 +1301,7 @@ struct MainView: View {
             fileManager.urls(for: .moviesDirectory, in: .userDomainMask).first,
             fileManager.urls(for: .musicDirectory, in: .userDomainMask).first,
             fileManager.urls(for: .picturesDirectory, in: .userDomainMask).first,
-            home,
+            appParentDir,
             home.appendingPathComponent("Public"),
             home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
             home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Library/Preferences/AutoRecovery"),
@@ -875,15 +1312,20 @@ struct MainView: View {
         
         if let volumes = try? fileManager.contentsOfDirectory(at: URL(fileURLWithPath: "/Volumes"), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
             for v in volumes {
-                baseDirs.append(v)
+                if v.lastPathComponent != "Macintosh HD" {
+                    baseDirs.append(v)
+                }
             }
         }
         
         let targetExtensions: Set<String> = ["pptx", "ppt", "pptm", "ppsx", "pdf", "key", "odp"]
         let sessionPath = sessionDir.path
+        let sessionResolvedPath = sessionDir.resolvingSymlinksInPath().path
         let cachePath = SecureStorage.cacheDirectory.path
+        let cacheResolvedPath = SecureStorage.cacheDirectory.resolvingSymlinksInPath().path
         let cleanLessonName = lessonName.replacingOccurrences(of: ".pptx", with: "", options: .caseInsensitive).lowercased()
         
+        // 1. Quét sâu (level <= 5) tất cả các thư mục người dùng thường dùng để lưu file
         for dir in baseDirs {
             guard let enumerator = fileManager.enumerator(
                 at: dir,
@@ -892,7 +1334,7 @@ struct MainView: View {
             ) else { continue }
             
             while let file = enumerator.nextObject() as? URL {
-                if enumerator.level > 3 {
+                if enumerator.level > 5 {
                     enumerator.skipDescendants()
                     continue
                 }
@@ -901,46 +1343,85 @@ struct MainView: View {
                 guard targetExtensions.contains(ext) else { continue }
                 
                 let filePath = file.resolvingSymlinksInPath().path
-                if filePath.contains(sessionPath) || filePath.contains(cachePath) {
+                if filePath.contains(sessionPath) || filePath.contains(sessionResolvedPath) ||
+                   filePath.contains(cachePath) || filePath.contains(cacheResolvedPath) ||
+                   filePath.contains(".SlideLock_Cache") {
                     continue
                 }
                 
                 var shouldPoison = false
                 
-                // 1. Nếu file không hề tồn tại trong snapshot trước khi mở bài -> 100% file vừa mới được Save As ra!
+                // A. Nếu file KHÔNG có trong snapshot ban đầu -> 100% file vừa được Save As/Export ra ngoài!
                 if !initialFiles.contains(filePath) {
                     shouldPoison = true
                 }
                 
-                // 2. Nếu file có thời gian chỉnh sửa mới (trong vòng từ lúc mở bài đến nay, dung sai 60 giây)
+                // B. File có trong snapshot (tồn tại từ trước) nhưng có timestamp mới SAU khi mở bài.
+                // CHỈ poison nếu file KHÔNG có trong snapshot để tránh đầu độc nhầm file AutoRecovery cũ
+                // hoặc các file PPT hợp lệ của user đã tồn tại từ trước phiên học.
+                // Không cần xử lý thêm ở đây vì điều kiện A đã bao phủ file mới hoàn toàn.
+                // Điều kiện B được giữ lại như một lớp bảo vệ phụ nhưng CHỈ áp dụng khi file KHÔNG có trong snapshot.
                 if !shouldPoison {
                     if let resourceValues = try? file.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]),
                        let modDate = resourceValues.contentModificationDate ?? resourceValues.creationDate {
-                        if modDate >= sessionStartTime.addingTimeInterval(-60.0) {
+                        // Chỉ kích hoạt nếu file KHÔNG có trong snapshot VÀ có timestamp mới (sau khi bắt đầu phiên học)
+                        // Dung sai chỉ 5 giây (thay vì 30) để tránh false positive với AutoRecovery cũ
+                        if !initialFiles.contains(filePath) && modDate >= sessionStartTime.addingTimeInterval(-5.0) {
                             shouldPoison = true
                         }
                     }
                 }
                 
-                // 3. Nếu tên file trùng hoặc chứa tên bài giảng đang học và nằm ngoài cache
-                if !shouldPoison && !cleanLessonName.isEmpty {
+                // C. Tên file trùng với tên bài giảng VÀ file KHÔNG có trong snapshot ban đầu.
+                // PHẢI check initialFiles để tránh poison file gốc của user đã tồn tại từ trước!
+                if !shouldPoison && !cleanLessonName.isEmpty && !initialFiles.contains(filePath) {
                     let fileName = file.deletingPathExtension().lastPathComponent.lowercased()
-                    if fileName.contains(cleanLessonName) || cleanLessonName.contains(fileName) {
+                    // Tăng độ chính xác: chỉ match khi tên file chứa cleanLessonName (không match ngược)
+                    // để tránh trường hợp cleanLessonName ngắn (vd: "a") match vào tên file dài bất kỳ
+                    if fileName.contains(cleanLessonName) {
                         shouldPoison = true
                     }
                 }
                 
                 if shouldPoison {
-                    self.poisonFile(at: file)
+                    self.lockAndEncryptFile(at: file)
+                }
+            }
+        }
+        
+        // 2. Quét tầng 1 của thư mục Home (nếu người dùng Save As trực tiếp vào ~/)
+        if let homeFiles = try? fileManager.contentsOfDirectory(at: home, includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey], options: [.skipsHiddenFiles]) {
+            for f in homeFiles {
+                let ext = f.pathExtension.lowercased()
+                if targetExtensions.contains(ext) {
+                    let fPath = f.resolvingSymlinksInPath().path
+                    // Chỉ khóa nếu file KHÔNG có trong snapshot ban đầu (tức là mới được tạo ra trong phiên học)
+                    if !initialFiles.contains(fPath) && !fPath.contains(".SlideLock_Cache") {
+                        self.lockAndEncryptFile(at: f)
+                    }
                 }
             }
         }
     }
     
-    private func saveAndCleanup(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date, initialFiles: Set<String>) {
+    private func saveAndCleanup(tempPptxPath: URL, sessionDir: URL, originalName: String, sessionStartTime: Date, initialFiles: Set<String>, externalSourceURL: URL? = nil) {
         Thread.sleep(forTimeInterval: 0.3)
         self.scanAndPoisonPowerPointOpenFiles(sessionDir: sessionDir)
         self.scanAndPoisonIllegalFiles(sessionStartTime: sessionStartTime, sessionDir: sessionDir, lessonName: originalName, initialFiles: initialFiles)
+        
+        // Nếu phiên làm việc này mở từ một file ngoài (tệp đã khóa riêng lẻ):
+        if let sourceURL = externalSourceURL {
+            if FileManager.default.fileExists(atPath: tempPptxPath.path) {
+                self.lockAndEncryptFile(at: tempPptxPath, destinationURL: sourceURL)
+            }
+            try? FileManager.default.removeItem(at: sessionDir)
+            SecureStorage.cleanupAll()
+            DispatchQueue.main.async {
+                self.statusMessage = "Đã lưu bản cập nhật và khóa tệp bài giảng an toàn."
+                self.isProcessing = false
+            }
+            return
+        }
         
         guard let tempZip = try? getDecryptedZipURL() else {
             try? FileManager.default.removeItem(at: sessionDir)
@@ -1019,12 +1500,11 @@ struct MainView: View {
                 repeat with frontApp in targetProcs
                     try
                         repeat with w in (windows of frontApp)
-                            -- 0. XỬ LÝ POPUP CẢNH BÁO FONT (khi bấm Lưu / Save As trên MacBook đời mới)
-                            -- Tự động click "Save Without Fonts" / "Lưu không có phông chữ"
-                            -- để lưu bình thường vào cache và triệt tiêu popup, không cho popup chặn tiến trình
                             set fontHandled to false
                             
-                            -- Kiểm tra trong sheet 1 của w
+                            -- 1. XỬ LÝ POPUP CẢNH BÁO FONT (khi bấm Lưu / Save As trên MacBook đời mới)
+                            -- Tự động click "Save Without Fonts" / "Lưu không có phông chữ"
+                            -- để lưu bình thường vào cache và triệt tiêu popup, không cho popup chặn tiến trình
                             try
                                 if exists (sheet 1 of w) then
                                     set theSheet to sheet 1 of w
@@ -1050,27 +1530,27 @@ struct MainView: View {
                                     
                                     -- Nếu là sheet khác không phải font (Save As / Export / Print sheet)
                                     if not fontHandled then
-                                        set cancelled to false
                                         try
                                             click button "Cancel" of theSheet
-                                            set cancelled to true
                                         end try
-                                        if not cancelled then
-                                            try
-                                                click button "Hủy" of theSheet
-                                                set cancelled to true
-                                            end try
-                                        end if
-                                        if not cancelled then
-                                            try
-                                                click button "Don't Save" of theSheet
-                                                set cancelled to true
-                                            end try
-                                        end if
-                                        delay 0.02
                                         try
-                                            tell frontApp to key code 53 -- Phím ESCape
+                                            click button "Hủy" of theSheet
                                         end try
+                                        try
+                                            click button "Don't Save" of theSheet
+                                        end try
+                                        try
+                                            repeat with g in (groups of theSheet)
+                                                try
+                                                    click button "Cancel" of g
+                                                end try
+                                                try
+                                                    click button "Hủy" of g
+                                                end try
+                                            end repeat
+                                        end try
+                                        delay 0.02
+                                        key code 53 -- Phím ESCape trực tiếp từ System Events
                                     end if
                                 end if
                             end try
@@ -1155,10 +1635,18 @@ struct MainView: View {
                                         try
                                             click button "Hủy" of w
                                         end try
-                                        delay 0.02
                                         try
-                                            tell frontApp to key code 53 -- Phím ESCape
+                                            repeat with g in (groups of w)
+                                                try
+                                                    click button "Cancel" of g
+                                                end try
+                                                try
+                                                    click button "Hủy" of g
+                                                end try
+                                            end repeat
                                         end try
+                                        delay 0.02
+                                        key code 53 -- Phím ESCape trực tiếp từ System Events
                                     end if
                                 end try
                             end if
@@ -1222,19 +1710,44 @@ struct MainView: View {
                                 set pFullName to (full name of p) as string
                             end try
                             
-                            set pPath to pFullName
-                            if not (pFullName starts with "/" or pFullName starts with "~") then
+                            set pPosix to ""
+                            if pFullName starts with "/" or pFullName starts with "~" then
+                                set pPosix to pFullName
+                            else if pFullName is not "" then
                                 try
-                                    set pPath to POSIX path of pFullName
+                                    set pPosix to POSIX path of (pFullName as alias)
+                                on error
+                                    try
+                                        tell application "System Events"
+                                            set pPosix to POSIX path of disk item pFullName
+                                        end tell
+                                    on error
+                                        -- Chuyển đổi thủ công HFS path sang POSIX
+                                        if pFullName contains ":" then
+                                            set AppleScript's text item delimiters to ":"
+                                            set hfsParts to text items of pFullName
+                                            set AppleScript's text item delimiters to ""
+                                            if (count of hfsParts) > 1 then
+                                                set AppleScript's text item delimiters to "/"
+                                                set restParts to (items 2 thru -1 of hfsParts) as string
+                                                set AppleScript's text item delimiters to ""
+                                                set pPosix to "/" & restParts
+                                            else
+                                                set pPosix to pFullName
+                                            end if
+                                        else
+                                            set pPosix to pFullName
+                                        end if
+                                    end try
                                 end try
                             end if
                             
                             -- Nhận diện presentation bài giảng chính xác:
                             -- BẮT BUỘC đường dẫn phải nằm trong sessionFolderName hoặc khớp chính xác targetPath!
                             if (pFullName contains "\(sessionFolderName)") or ¬
-                               (pPath contains "\(sessionFolderName)") or ¬
-                               (pPath is "\(targetPath)") or ¬
-                               (pPath is "\(targetResolvedPath)") then
+                               (pPosix contains "\(sessionFolderName)") or ¬
+                               (pPosix is "\(targetPath)") or ¬
+                               (pPosix is "\(targetResolvedPath)") then
                                 set isOriginal to true
                                 set originalOpen to true
                             end if
@@ -1244,8 +1757,9 @@ struct MainView: View {
                                 try
                                     close p saving no
                                 end try
-                                if pPath is not "" and not (pPath contains "\(sessionFolderName)") then
-                                    copy pPath to end of clones
+                                
+                                if pPosix is not "" and not (pPosix contains "\(sessionFolderName)") and not (pPosix contains ".SlideLock_Cache") and (pPosix starts with "/") then
+                                    copy pPosix to end of clones
                                 else if pFullName is not "" and not (pFullName contains "\(sessionFolderName)") then
                                     copy pFullName to end of clones
                                 end if
@@ -1255,9 +1769,9 @@ struct MainView: View {
                     
                     set output to ""
                     if originalOpen then 
-                        set output to "OPEN:"
+                        set output to "OPEN###"
                     else
-                        set output to "CLOSED:"
+                        set output to "CLOSED###"
                     end if
                     
                     repeat with c in clones
@@ -1267,28 +1781,36 @@ struct MainView: View {
                 end tell
             end timeout
         on error errMsg number errNum
-            return "ERROR:" & errMsg & ":" & errNum
+            return "ERROR###" & errMsg & "###" & errNum
         end try
         """
         
         var shouldContinue = false
         var errorInfo: NSDictionary?
         if let output = NSAppleScript(source: protectScript)?.executeAndReturnError(&errorInfo).stringValue {
-            if output.starts(with: "ERROR:") {
+            if output.starts(with: "ERROR") {
                 AppLogger.writeLog("AppleScript Exception in scanAndKillClones: \(output)")
                 return true
             }
             
-            let parts = output.components(separatedBy: ":")
+            let parts = output.components(separatedBy: "###")
             if parts.count >= 2 {
                 let status = parts[0]
                 shouldContinue = (status == "OPEN")
                 
                 let paths = parts[1].components(separatedBy: "|")
+                var foundClones = false
                 for path in paths {
                     let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
-                        self.poisonFile(at: URL(fileURLWithPath: trimmed))
+                        foundClones = true
+                        let resolvedPath = self.posixPath(from: trimmed)
+                        self.lockAndEncryptFile(at: URL(fileURLWithPath: resolvedPath))
+                    }
+                }
+                if foundClones {
+                    DispatchQueue.main.async {
+                        self.statusMessage = "CẢNH BÁO BẢO MẬT: Phát hiện lưu/sao chép bài giảng! Bản sao đã bị gán mã lỗi và mã hóa bảo vệ. Bắt buộc phải mở qua SlideLock."
                     }
                 }
             }

@@ -29,6 +29,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
     }
     
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        for file in filenames {
+            NotificationCenter.default.post(name: NSNotification.Name("SlideLockOpenFile"), object: file)
+        }
+    }
+    
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            NotificationCenter.default.post(name: NSNotification.Name("SlideLockOpenFile"), object: url.path)
+        }
+    }
+    
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
@@ -41,6 +53,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
+        let script = """
+        tell application "Microsoft PowerPoint"
+            try
+                close presentations saving no
+            end try
+        end tell
+        """
+        NSAppleScript(source: script)?.executeAndReturnError(nil)
         SecureStorage.cleanupAll()
     }
 }
