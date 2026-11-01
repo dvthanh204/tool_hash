@@ -91,7 +91,6 @@ class SlideLockModernAdmin(ctk.CTk):
         self.nav_buttons = {}
         nav_items = [
             ("tab_pack", "⚡ Đóng Gói Khóa Học", "arrow"),
-            ("tab_single", "🔒 Khóa PPTX Lẻ", ""),
             ("tab_key", "🔑 Cấp Key Bản Quyền", ""),
             ("tab_ban", "🚫 Quản Lý Blacklist", ""),
             ("tab_pardon", "🛡️ Thẻ Bài Ân Xá", "")
@@ -135,14 +134,12 @@ class SlideLockModernAdmin(ctk.CTk):
         
         self.tab_frames = {
             "tab_pack": ctk.CTkFrame(self.content_area, fg_color="transparent"),
-            "tab_single": ctk.CTkFrame(self.content_area, fg_color="transparent"),
             "tab_key": ctk.CTkFrame(self.content_area, fg_color="transparent"),
             "tab_ban": ctk.CTkFrame(self.content_area, fg_color="transparent"),
             "tab_pardon": ctk.CTkFrame(self.content_area, fg_color="transparent")
         }
         
         self._build_tab_pack()
-        self._build_tab_single()
         self._build_tab_key()
         self._build_tab_ban()
         self._build_tab_pardon()
@@ -378,6 +375,208 @@ class SlideLockModernAdmin(ctk.CTk):
             self.selected_files.remove(p)
             self._render_pack_dropzone_list()
 
+    def _harden_pptx_for_mac(self, raw_bytes: bytes) -> bytes:
+        """
+        Khóa bảo vệ cấu trúc bài giảng PPTX trước khi đóng gói:
+        1. Vô hiệu hóa Save As, Save a Copy, Export, Print trong CustomUI
+        2. Vô hiệu hóa Copy, Cut, Duplicate slide và nội dung
+        3. Ẩn nhóm Clipboard và các tab Backstage
+        4. Xóa font nhúng để triệt tiêu popup cảnh báo font của PowerPoint
+        """
+        try:
+            in_mem = io.BytesIO(raw_bytes)
+            out_mem = io.BytesIO()
+            
+            custom_ui_2007 = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
+    <commands>
+        <command idMso="FileSave" enabled="true"/>
+        <command idMso="FileSaveAs" enabled="false"/>
+        <command idMso="FileSaveAsMenu" enabled="false"/>
+        <command idMso="FileSaveAsMac" enabled="false"/>
+        <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+        <command idMso="FileSaveACopy" enabled="false"/>
+        <command idMso="FileSaveCopyAs" enabled="false"/>
+        <command idMso="FileSaveAsPicture" enabled="false"/>
+        <command idMso="PictureSaveAs" enabled="false"/>
+        <command idMso="SaveMediaAs" enabled="false"/>
+        <command idMso="Export" enabled="false"/>
+        <command idMso="FileExport" enabled="false"/>
+        <command idMso="FileExportAsPdf" enabled="false"/>
+        <command idMso="PublishToPdfOrXps" enabled="false"/>
+        <command idMso="CreateVideo" enabled="false"/>
+        <command idMso="FileExportToVideo" enabled="false"/>
+        <command idMso="PackageForCd" enabled="false"/>
+        <command idMso="CreateHandouts" enabled="false"/>
+        <command idMso="Share" enabled="false"/>
+        <command idMso="ShareDocument" enabled="false"/>
+        <command idMso="FileSendAsAttachment" enabled="false"/>
+        <command idMso="FileSendAsPdf" enabled="false"/>
+        <command idMso="FileSendAsXps" enabled="false"/>
+        <command idMso="FilePrint" enabled="false"/>
+        <command idMso="FilePrintMac" enabled="false"/>
+        <command idMso="FilePrintQuick" enabled="false"/>
+        <command idMso="PrintPreviewAndPrint" enabled="false"/>
+        <command idMso="ApplicationOptionsDialog" enabled="false"/>
+        <command idMso="Duplicate" enabled="false"/>
+        <command idMso="FileDuplicate" enabled="false"/>
+        <command idMso="FileMove" enabled="false"/>
+        <command idMso="Copy" enabled="false"/>
+        <command idMso="Cut" enabled="false"/>
+        <command idMso="Paste" enabled="false"/>
+        <command idMso="PasteSpecial" enabled="false"/>
+        <command idMso="ClipboardCopy" enabled="false"/>
+        <command idMso="SlideCopy" enabled="false"/>
+        <command idMso="SlidePaste" enabled="false"/>
+        <command idMso="SlideDuplicate" enabled="false"/>
+        <command idMso="SlideCut" enabled="false"/>
+        <command idMso="SlideReuse" enabled="false"/>
+        <command idMso="SlidesReuse" enabled="false"/>
+        <command idMso="ReuseSlides" enabled="false"/>
+        <command idMso="SlideMasterDuplicate" enabled="false"/>
+        <command idMso="SlideMasterCopy" enabled="false"/>
+        <command idMso="SlideLayoutDuplicate" enabled="false"/>
+        <command idMso="SlideLayoutCopy" enabled="false"/>
+        <command idMso="CopyFormat" enabled="false"/>
+        <command idMso="ObjectDuplicate" enabled="false"/>
+        <command idMso="SelectionDuplicate" enabled="false"/>
+    </commands>
+    <ribbon>
+        <officeMenu>
+            <button idMso="FileSaveAs" visible="false"/>
+            <button idMso="FileSaveAsMenu" visible="false"/>
+            <button idMso="FilePrint" visible="false"/>
+            <button idMso="FilePrintMenu" visible="false"/>
+            <menu idMso="FileSendMenu" visible="false"/>
+            <button idMso="FilePublishToPdfOrXps" visible="false"/>
+        </officeMenu>
+        <tabs>
+            <tab idMso="TabHome">
+                <group idMso="GroupClipboard" visible="false"/>
+            </tab>
+        </tabs>
+    </ribbon>
+</customUI>""".encode('utf-8')
+
+            custom_ui_2010 = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+    <commands>
+        <command idMso="FileSave" enabled="true"/>
+        <command idMso="FileSaveAs" enabled="false"/>
+        <command idMso="FileSaveAsMenu" enabled="false"/>
+        <command idMso="FileSaveAsMac" enabled="false"/>
+        <command idMso="FileSaveAsPdfOrXps" enabled="false"/>
+        <command idMso="FileSaveACopy" enabled="false"/>
+        <command idMso="FileSaveCopyAs" enabled="false"/>
+        <command idMso="FileSaveAsPicture" enabled="false"/>
+        <command idMso="PictureSaveAs" enabled="false"/>
+        <command idMso="SaveMediaAs" enabled="false"/>
+        <command idMso="Export" enabled="false"/>
+        <command idMso="FileExport" enabled="false"/>
+        <command idMso="FileExportAsPdf" enabled="false"/>
+        <command idMso="PublishToPdfOrXps" enabled="false"/>
+        <command idMso="CreateVideo" enabled="false"/>
+        <command idMso="FileExportToVideo" enabled="false"/>
+        <command idMso="PackageForCd" enabled="false"/>
+        <command idMso="CreateHandouts" enabled="false"/>
+        <command idMso="Share" enabled="false"/>
+        <command idMso="ShareDocument" enabled="false"/>
+        <command idMso="FileSendAsAttachment" enabled="false"/>
+        <command idMso="FileSendAsPdf" enabled="false"/>
+        <command idMso="FileSendAsXps" enabled="false"/>
+        <command idMso="FilePrint" enabled="false"/>
+        <command idMso="FilePrintMac" enabled="false"/>
+        <command idMso="FilePrintQuick" enabled="false"/>
+        <command idMso="PrintPreviewAndPrint" enabled="false"/>
+        <command idMso="ApplicationOptionsDialog" enabled="false"/>
+        <command idMso="Duplicate" enabled="false"/>
+        <command idMso="FileDuplicate" enabled="false"/>
+        <command idMso="FileMove" enabled="false"/>
+        <command idMso="Copy" enabled="false"/>
+        <command idMso="Cut" enabled="false"/>
+        <command idMso="Paste" enabled="false"/>
+        <command idMso="PasteSpecial" enabled="false"/>
+        <command idMso="ClipboardCopy" enabled="false"/>
+        <command idMso="SlideCopy" enabled="false"/>
+        <command idMso="SlidePaste" enabled="false"/>
+        <command idMso="SlideDuplicate" enabled="false"/>
+        <command idMso="SlideCut" enabled="false"/>
+        <command idMso="SlideReuse" enabled="false"/>
+        <command idMso="SlidesReuse" enabled="false"/>
+        <command idMso="ReuseSlides" enabled="false"/>
+        <command idMso="SlideMasterDuplicate" enabled="false"/>
+        <command idMso="SlideMasterCopy" enabled="false"/>
+        <command idMso="SlideLayoutDuplicate" enabled="false"/>
+        <command idMso="SlideLayoutCopy" enabled="false"/>
+        <command idMso="CopyFormat" enabled="false"/>
+        <command idMso="ObjectDuplicate" enabled="false"/>
+        <command idMso="SelectionDuplicate" enabled="false"/>
+    </commands>
+    <ribbon>
+        <backstage>
+            <tab idMso="TabSave" visible="false"/>
+            <tab idMso="TabPrint" visible="false"/>
+            <tab idMso="TabExport" visible="false"/>
+            <tab idMso="TabShare" visible="false"/>
+            <tab idMso="TabPublish" visible="false"/>
+        </backstage>
+        <tabs>
+            <tab idMso="TabHome">
+                <group idMso="GroupClipboard" visible="false"/>
+            </tab>
+        </tabs>
+    </ribbon>
+</customUI>""".encode('utf-8')
+
+            with zipfile.ZipFile(in_mem, 'r') as zin, zipfile.ZipFile(out_mem, 'w', zipfile.ZIP_DEFLATED) as zout:
+                rels_found = False
+                for item in zin.infolist():
+                    if item.filename.startswith('ppt/fonts/'):
+                        continue
+                    file_bytes = zin.read(item.filename)
+                    if item.filename == '_rels/.rels':
+                        rels_found = True
+                        rels_str = file_bytes.decode('utf-8', errors='ignore')
+                        if 'customUI/customUI.xml' not in rels_str:
+                            rel_tag = '<Relationship Id="rIdCustomUI" Type="http://schemas.microsoft.com/office/2006/relationships/ui/extensibility" Target="customUI/customUI.xml"/>'
+                            if '</Relationships>' in rels_str:
+                                rels_str = rels_str.replace('</Relationships>', f'{rel_tag}</Relationships>')
+                        if 'customUI/customUI14.xml' not in rels_str:
+                            rel_tag14 = '<Relationship Id="rIdCustomUI14" Type="http://schemas.microsoft.com/office/2007/relationships/ui/extensibility" Target="customUI/customUI14.xml"/>'
+                            if '</Relationships>' in rels_str:
+                                rels_str = rels_str.replace('</Relationships>', f'{rel_tag14}</Relationships>')
+                        file_bytes = rels_str.encode('utf-8')
+                    elif item.filename == 'ppt/presentation.xml':
+                        p_str = file_bytes.decode('utf-8', errors='ignore')
+                        p_str = re.sub(r'(?is)<p:embeddedFontLst\b[^>]*>.*?</p:embeddedFontLst>', '', p_str)
+                        p_str = re.sub(r'(?is)<p:embeddedFontLst\b[^>]*/>', '', p_str)
+                        p_str = re.sub(r'(?is)<p:embedTrueTypeFonts\b[^>]*>.*?</p:embedTrueTypeFonts>', '<p:embedTrueTypeFonts val="0"/>', p_str)
+                        p_str = re.sub(r'(?is)<p:embedTrueTypeFonts\b[^>]*/>', '<p:embedTrueTypeFonts val="0"/>', p_str)
+                        p_str = re.sub(r'(?is)<p:saveSubsetFonts\b[^>]*>.*?</p:saveSubsetFonts>', '', p_str)
+                        p_str = re.sub(r'(?is)<p:saveSubsetFonts\b[^>]*/>', '', p_str)
+                        file_bytes = p_str.encode('utf-8')
+                    elif item.filename == 'ppt/_rels/presentation.xml.rels':
+                        r_str = file_bytes.decode('utf-8', errors='ignore')
+                        r_str = re.sub(r'<Relationship[^>]*relationships/font[^>]*/>', '', r_str)
+                        file_bytes = r_str.encode('utf-8')
+                    zout.writestr(item, file_bytes)
+
+                if not rels_found:
+                    default_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+<Relationship Id="rIdCustomUI" Type="http://schemas.microsoft.com/office/2006/relationships/ui/extensibility" Target="customUI/customUI.xml"/>
+<Relationship Id="rIdCustomUI14" Type="http://schemas.microsoft.com/office/2007/relationships/ui/extensibility" Target="customUI/customUI14.xml"/>
+</Relationships>""".encode('utf-8')
+                    zout.writestr('_rels/.rels', default_rels)
+
+                zout.writestr('customUI/customUI.xml', custom_ui_2007)
+                zout.writestr('customUI/customUI14.xml', custom_ui_2010)
+
+            return out_mem.getvalue()
+        except Exception as e:
+            return raw_bytes
+
     def _run_pack_mac(self):
         if not self.selected_files:
             return messagebox.showerror("Lỗi", "Vui lòng chọn ít nhất 1 bài giảng .pptx!")
@@ -398,7 +597,9 @@ class SlideLockModernAdmin(ctk.CTk):
                         orig_name = os.path.basename(p_pth)
                         safe_name = f"lesson_{idx}.pptx"
                         with open(p_pth, 'rb') as f_pptx:
-                            zf.writestr(safe_name, f_pptx.read())
+                            raw_data = f_pptx.read()
+                        hardened_data = self._harden_pptx_for_mac(raw_data)
+                        zf.writestr(safe_name, hardened_data)
                         manifest[safe_name] = orig_name
                     zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False).encode('utf-8'))
                     zf.write("revocations.json", "revocations.json") if os.path.exists("revocations.json") else zf.writestr("revocations.json", "{}")
@@ -473,159 +674,7 @@ class SlideLockModernAdmin(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     # ══════════════════════════════════════════════════════════════════
-    # TAB 2: KHÓA FILE PPTX LẺ (VỚI GIAO DIỆN CÙNG PHONG CÁCH)
-    # ══════════════════════════════════════════════════════════════════
-    def _build_tab_single(self):
-        main_card = ctk.CTkFrame(self.tab_frames["tab_single"], fg_color=self.C_CARD_BG, corner_radius=22, border_width=1, border_color=self.C_BORDER)
-        main_card.pack(fill="both", expand=True)
-        
-        header_frame = ctk.CTkFrame(main_card, fg_color="transparent")
-        header_frame.pack(fill="x", padx=28, pady=(22, 14))
-        
-        round_icon_box = ctk.CTkFrame(header_frame, fg_color="#6366F1", corner_radius=28, width=54, height=54, border_width=2, border_color="#A855F7")
-        round_icon_box.pack(side="left", padx=(0, 16))
-        round_icon_box.pack_propagate(False)
-        ctk.CTkLabel(round_icon_box, text="🔒", font=ctk.CTkFont(size=22)).place(relx=0.5, rely=0.5, anchor="center")
-        
-        header_text = ctk.CTkFrame(header_frame, fg_color="transparent")
-        header_text.pack(side="left", fill="both", expand=True)
-        
-        title_row = ctk.CTkFrame(header_text, fg_color="transparent")
-        title_row.pack(anchor="w")
-        ctk.CTkLabel(title_row, text="Khóa Mã Hóa File PPTX Lẻ ", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color=self.C_TEXT_WHITE).pack(side="left")
-        ctk.CTkLabel(title_row, text="(Mã Lỗi 0xSL-E994)", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#A855F7").pack(side="left")
-        
-        ctk.CTkLabel(
-            header_text,
-            text="Gán header lỗi bảo mật SlideLock. PowerPoint mở trực tiếp sẽ báo hỏng, bắt buộc mở qua app.",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color=self.C_TEXT_MUTED
-        ).pack(anchor="w", pady=(2, 0))
-        
-        # Pill bar chọn file
-        pill_bar = ctk.CTkFrame(main_card, fg_color="#101C3D", corner_radius=14, border_width=1, border_color="#233B75", height=50)
-        pill_bar.pack(fill="x", padx=28, pady=(0, 14))
-        pill_bar.pack_propagate(False)
-        
-        ctk.CTkLabel(pill_bar, text="📁", font=ctk.CTkFont(size=18)).pack(side="left", padx=(16, 10))
-        self.single_summary_lbl = ctk.CTkLabel(pill_bar, text="Chưa chọn tệp PPTX nào", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"), text_color=self.C_TEXT_WHITE)
-        self.single_summary_lbl.pack(side="left")
-        
-        ctk.CTkButton(
-            pill_bar,
-            text="📁 Chọn File PPTX...",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            fg_color="#6366F1",
-            hover_color="#4F46E5",
-            height=36,
-            corner_radius=10,
-            border_width=1,
-            border_color="#A855F7",
-            command=self._sel_single_files
-        ).pack(side="right", padx=10, pady=7)
-        
-        self.single_box = ctk.CTkScrollableFrame(main_card, fg_color="#08122C", corner_radius=16, border_width=2, border_color="#203975")
-        self.single_box.pack(fill="both", expand=True, padx=28, pady=(0, 20))
-        self._render_single_list()
-        
-        ctk.CTkButton(
-            main_card,
-            text="🔒  MÃ HÓA & GÁN MÃ LỖI BẢO MẬT (CHỈ MỞ QUA SLIDELOCK)        ➔",
-            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            fg_color="#6366F1",
-            hover_color="#4F46E5",
-            text_color=self.C_TEXT_WHITE,
-            height=54,
-            corner_radius=27,
-            border_width=1.5,
-            border_color="#A855F7",
-            command=self._run_single_lock
-        ).pack(fill="x", padx=28, pady=(0, 24))
-
-    def _sel_single_files(self):
-        pths = filedialog.askopenfilenames(filetypes=[("PowerPoint Presentation", "*.pptx")])
-        if pths:
-            for p in pths:
-                if p not in self.single_lock_files:
-                    self.single_lock_files.append(p)
-            self._render_single_list()
-
-    def _render_single_list(self):
-        for w in self.single_box.winfo_children(): w.destroy()
-        if not self.single_lock_files:
-            ctk.CTkLabel(self.single_box, text="Chưa có file PPTX nào được chọn.", font=ctk.CTkFont(size=13), text_color=self.C_TEXT_MUTED).pack(pady=60)
-            self.single_summary_lbl.configure(text="Chưa chọn tệp PPTX nào")
-            return
-            
-        self.single_summary_lbl.configure(text=f"Đã chọn {len(self.single_lock_files)} tệp PPTX", text_color="#A855F7")
-        for fpath in self.single_lock_files:
-            item = ctk.CTkFrame(self.single_box, fg_color="#101D40", corner_radius=10, height=38)
-            item.pack(fill="x", padx=4, pady=4)
-            ctk.CTkLabel(item, text="PPTX", font=ctk.CTkFont(size=10, weight="bold"), text_color="#F97316", width=42).pack(side="left", padx=8)
-            ctk.CTkLabel(item, text=os.path.basename(fpath), font=ctk.CTkFont(size=12, weight="bold"), text_color=self.C_TEXT_WHITE).pack(side="left", padx=6)
-            ctk.CTkButton(
-                item,
-                text="✕",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                width=28,
-                height=24,
-                fg_color="transparent",
-                hover_color="#EF4444",
-                corner_radius=6,
-                command=lambda p=fpath: self._remove_single_file(p)
-            ).pack(side="right", padx=8)
-
-    def _remove_single_file(self, p):
-        if p in self.single_lock_files:
-            self.single_lock_files.remove(p)
-            self._render_single_list()
-
-    def _run_single_lock(self):
-        if not self.single_lock_files:
-            return messagebox.showerror("Lỗi", "Vui lòng chọn ít nhất 1 file PPTX!")
-        try:
-            aesgcm = AESGCM(b"12345678901234567890123456789012")
-            locked_count = 0
-            out_files = []
-            for p_pth in self.single_lock_files:
-                if not os.path.exists(p_pth): continue
-                with open(p_pth, "rb") as f_in: raw_data = f_in.read()
-                if raw_data.startswith(b"SLIDELOCK_ENCRYPTED_FILE_V1"): continue
-                
-                nonce = os.urandom(12)
-                enc = aesgcm.encrypt(nonce, raw_data, None)
-                payload = nonce + enc
-                
-                header = (
-                    "SLIDELOCK_ENCRYPTED_FILE_V1\n"
-                    "[ERROR_CODE: 0xSL-E994-UNAUTHORIZED_SAVE_AS_DETECTED]\n"
-                    "================================================================================\n"
-                    "⚠️ CẢNH BÁO BẢO MẬT BẢN QUYỀN SLIDELOCK:\n"
-                    "MÃ LỖI (ERROR CODE): 0xSL-E994-UNAUTHORIZED_SAVE_AS_DETECTED\n"
-                    "TRẠNG THÁI: TỆP BÀI GIẢNG ĐÃ BỊ KHÓA BẢN QUYỀN DO PHÁT HIỆN LƯU / SAVE AS TRÁI PHÉP.\n"
-                    "THÔNG BÁO: Tệp này không thể mở bằng Microsoft PowerPoint thông thường.\n"
-                    "BẮT BUỘC PHẢI MỞ THÔNG QUA ỨNG DỤNG SLIDELOCK ĐÃ ĐƯỢC CẤP KEY HỢP LỆ.\n"
-                    f"THỜI GIAN KHÓA: {datetime.now().isoformat()}\n"
-                    "================================================================================\n"
-                    "---SLIDELOCK_PAYLOAD_BEGIN---\n"
-                ).encode('utf-8')
-                
-                dirname = os.path.dirname(p_pth)
-                base = os.path.splitext(os.path.basename(p_pth))[0]
-                out_path = os.path.join(dirname, f"{base}_locked.pptx")
-                with open(out_path, "wb") as f_out: f_out.write(header + payload)
-                locked_count += 1
-                out_files.append(os.path.basename(out_path))
-                
-            if locked_count > 0:
-                messagebox.showinfo("Thành Công", f"Đã mã hóa và gán mã lỗi SlideLock cho {locked_count} tệp!\n\nKhi mở bằng PowerPoint thông thường máy sẽ báo lỗi không đọc được. Bắt buộc phải mở qua SlideLock!")
-            else:
-                messagebox.showwarning("Thông Báo", "Các tệp được chọn đã được mã hóa trước đó.")
-        except Exception as e:
-            messagebox.showerror("Lỗi", str(e))
-
-    # ══════════════════════════════════════════════════════════════════
-    # TAB 3: CẤP KEY BẢN QUYỀN (ELECTRIC CYAN THEME)
+    # TAB 2: CẤP KEY BẢN QUYỀN (ELECTRIC CYAN THEME)
     # ══════════════════════════════════════════════════════════════════
     def _generate_hmac_key(self, u):
         raw = f"{u.strip().upper()}".encode('utf-8')

@@ -1,6 +1,8 @@
 import SwiftUI
+import AppKit
 import Foundation
 import CryptoKit
+import CoreGraphics
 
 struct AppLogger {
     static func writeLog(_ message: String) {
@@ -42,11 +44,12 @@ struct MainView: View {
     @State private var customDataURL: URL? = nil
     @State private var hasAccessibilityPermission: Bool = true
     @State private var pulseGlow: Bool = false
-    @State private var isHoveringOpenBtn: Bool = false
     @State private var isHoveringActionBtn: Bool = false
     
     private let slideLockHeaderMagic = "SLIDELOCK_ENCRYPTED_FILE_V1"
     private let slideLockPayloadMarker = "---SLIDELOCK_PAYLOAD_BEGIN---\n"
+    private let slideLockFatalHeaderMagic = "SLIDELOCK_FATAL_ERROR_V2"
+    private let slideLockCorruptMarker = "---SLIDELOCK_CORRUPTED_PAYLOAD_BEGIN---\n"
     private let slideLockErrorCode = "0xSL-E994-UNAUTHORIZED_SAVE_AS_DETECTED"
     private let fileLockQueue = DispatchQueue(label: "com.slidelock.filelock.queue")
     
@@ -127,43 +130,7 @@ struct MainView: View {
                         .padding(.bottom, 10)
                     }
                     
-                    // Nút Mở File PPTX Đã Khóa
-                    Button(action: {
-                        self.selectAndOpenProtectedFile()
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "folder.badge.gearshape.fill")
-                                .font(.system(size: 13, weight: .bold))
-                            Text("Mở File PPTX / Đã Khóa")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .bold))
-                                .opacity(0.6)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.22, green: 0.38, blue: 0.95),
-                                    Color(red: 0.38, green: 0.22, blue: 0.90)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                        .shadow(color: Color.blue.opacity(isHoveringOpenBtn ? 0.5 : 0.25), radius: isHoveringOpenBtn ? 10 : 5, x: 0, y: 3)
-                        .scaleEffect(isHoveringOpenBtn ? 1.015 : 1.0)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isProcessing)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 12)
-                    .onHover { isHoveringOpenBtn = $0 }
-                    
+
                     // Tiêu đề danh sách
                     HStack {
                         Text("BÀI HỌC KHÓA")
@@ -522,8 +489,18 @@ struct MainView: View {
             }
             
             var pptxData: Data? = nil
-            let prefixStr = String(data: fileData.prefix(128), encoding: .utf8) ?? ""
+            let prefixStr = String(data: fileData.prefix(512), encoding: .utf8) ?? ""
             
+            // 1. Chặn tuyệt đối và báo lỗi nếu tệp là bản Save As trái phép đã bị gán mã lỗi và phá hủy
+            if prefixStr.contains(self.slideLockErrorCode) || prefixStr.contains("UNAUTHORIZED_SAVE_AS") || prefixStr.contains("PERMANENTLY_CORRUPTED") || prefixStr.contains(self.slideLockFatalHeaderMagic) {
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.statusMessage = "⛔ TỆP ĐÃ BỊ HỦY BỎ VÀ KHÓA VĨNH VIỄN: Phát hiện tệp này bị gán mã lỗi do thao tác Save As trái phép (\(self.slideLockErrorCode)). Không thể mở lại!"
+                }
+                return
+            }
+            
+            // 2. Mở tệp mã hóa hợp lệ của ứng dụng SlideLock
             if prefixStr.contains(self.slideLockHeaderMagic) {
                 guard let markerData = self.slideLockPayloadMarker.data(using: .utf8),
                       let markerRange = fileData.range(of: markerData) else {
@@ -535,23 +512,24 @@ struct MainView: View {
                 }
                 
                 let payload = fileData.subdata(in: markerRange.upperBound ..< fileData.count)
-                guard payload.count > 28,
-                      let secretData = "12345678901234567890123456789012".data(using: .utf8) else {
+                guard payload.count > 28 else {
                     DispatchQueue.main.async {
                         self.isProcessing = false
-                        self.statusMessage = "Lỗi chuẩn bị chìa khóa giải mã."
+                        self.statusMessage = "Tệp bị khóa nhưng dữ liệu không hợp lệ."
                     }
                     return
                 }
                 
-                let symmetricKey = SymmetricKey(data: secretData)
+                let keySeed = "12345678901234567890123456789012:" + MachineID.current
+                let keyHash = SHA256.hash(data: Data(keySeed.utf8))
+                let symmetricKey = SymmetricKey(data: Data(keyHash))
                 do {
                     let sealedBox = try AES.GCM.SealedBox(combined: payload)
                     pptxData = try AES.GCM.open(sealedBox, using: symmetricKey)
                 } catch {
                     DispatchQueue.main.async {
                         self.isProcessing = false
-                        self.statusMessage = "Giải mã thất bại: Tệp có thể đã bị sửa đổi hoặc hỏng."
+                        self.statusMessage = "KHÔNG THỂ MỞ: Tệp này đã bị khóa theo phần cứng của máy tính khác. Bạn không thể sử dụng tệp này!"
                     }
                     return
                 }
@@ -1147,27 +1125,100 @@ struct MainView: View {
                 AppLogger.writeLog("Baseline slide count recorded: \(initialSlideCount) for \(targetFullName)")
             }
             
-            // Đăng ký bộ lắng nghe phím tắt toàn cục để chặn Cmd+C (Copy) và Cmd+D (Duplicate) trực tiếp khi PowerPoint active
+            // 1. Cài đặt CGEventTap chặn phím Cmd+C, Cmd+X, Cmd+D, Cmd+Shift+S, Cmd+P trực tiếp ở tầng OS
+            var eventTapSource: CFRunLoopSource? = nil
+            var machPort: CFMachPort? = nil
+            
+            let eventMask = (1 << CGEventType.keyDown.rawValue)
+            let tap = CGEvent.tapCreate(
+                tap: .cghidEventTap,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: CGEventMask(eventMask),
+                callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
+                    if type == .keyDown {
+                        let flags = event.flags
+                        if flags.contains(.maskCommand) {
+                            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                            let isShift = flags.contains(.maskShift)
+                            // 8 = C (Copy), 7 = X (Cut), 2 = D (Duplicate), 35 = P (Print), 1 = S (với Shift: Save As)
+                            if keyCode == 8 || keyCode == 7 || keyCode == 2 || keyCode == 35 || (keyCode == 1 && isShift) {
+                                if let frontApp = NSWorkspace.shared.frontmostApplication,
+                                   frontApp.bundleIdentifier == "com.microsoft.Powerpoint" {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép nội dung!", forType: .string)
+                                    return nil // Nuốt sự kiện hoàn toàn, PowerPoint không nhận được phím!
+                                }
+                            }
+                        }
+                    }
+                    return Unmanaged.passRetained(event)
+                },
+                userInfo: nil
+            )
+            
+            if let tap = tap {
+                machPort = tap
+                let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+                eventTapSource = src
+                CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+                CGEvent.tapEnable(tap: tap, enable: true)
+                AppLogger.writeLog("CGEventTap successfully active to block Copy & Save As.")
+            }
+            
+            // 2. Bộ lắng nghe phím tắt toàn cục bổ trợ
             var keyMonitor: Any? = nil
             DispatchQueue.main.sync {
                 keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { event in
                     guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.microsoft.Powerpoint" else { return }
                     if event.modifierFlags.contains(.command) {
-                        // Keycode 8 = 'C' (Copy), Keycode 2 = 'D' (Duplicate Slide)
-                        if event.keyCode == 8 || event.keyCode == 2 {
+                        let isShift = event.modifierFlags.contains(.shift)
+                        if event.keyCode == 8 || event.keyCode == 7 || event.keyCode == 2 || event.keyCode == 35 || (event.keyCode == 1 && isShift) {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép hoặc nhân bản slide!", forType: .string)
-                            AppLogger.writeLog("Intercepted hotkey Cmd+\(event.keyCode == 8 ? "C" : "D") in PowerPoint.")
+                            NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép hoặc lưu bản sao!", forType: .string)
+                            AppLogger.writeLog("Intercepted hotkey Cmd+\(event.keyCode) in PowerPoint.")
                         }
                     }
                 }
             }
             
+            // 3. Timer siêu tốc quét và triệt tiêu clipboard liên tục mỗi 15ms (chặn triệt để Right-Click Copy, Menu Copy, Drag-Drop)
+            let clipboardTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+            var lastPasteboardCount = NSPasteboard.general.changeCount
+            clipboardTimer.schedule(deadline: .now(), repeating: .milliseconds(15))
+            clipboardTimer.setEventHandler {
+                let pb = NSPasteboard.general
+                let currentCount = pb.changeCount
+                if currentCount != lastPasteboardCount {
+                    let isPptFront = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.microsoft.Powerpoint"
+                    var hasPptData = false
+                    if let types = pb.types {
+                        for t in types {
+                            let raw = t.rawValue.lowercased()
+                            if raw.contains("powerpoint") || raw.contains("slide") || raw.contains("office") ||
+                               raw.contains("presentation") || raw.contains("openxmlformats") ||
+                               raw.contains("ms-powerpoint") || raw.contains("microsoft") ||
+                               raw.contains("pict") || raw.contains("graphic") || raw.contains("shape") {
+                                hasPptData = true
+                                break
+                            }
+                        }
+                    }
+                    if isPptFront || hasPptData {
+                        pb.clearContents()
+                        pb.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép slide và nội dung!", forType: .string)
+                        lastPasteboardCount = pb.changeCount
+                    } else {
+                        lastPasteboardCount = currentCount
+                    }
+                }
+            }
+            clipboardTimer.resume()
+            
             DispatchQueue.main.async {
-                self.statusMessage = "Bài giảng đang mở trong chế độ bảo mật (Đã kích hoạt lá chắn chống sao chép slide)."
+                self.statusMessage = "Bài giảng đang mở trong chế độ bảo mật (Đã kích hoạt lá chắn chống sao chép slide & chống Save As)."
             }
             
-            var lastPasteboardCount = NSPasteboard.general.changeCount
             var loopIndex = 0
             var stillOpen = true
             while stillOpen {
@@ -1204,6 +1255,13 @@ struct MainView: View {
                 loopIndex += 1
             }
             
+            clipboardTimer.cancel()
+            if let tap = machPort {
+                CGEvent.tapEnable(tap: tap, enable: false)
+                if let src = eventTapSource {
+                    CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
+                }
+            }
             if let monitor = keyMonitor {
                 DispatchQueue.main.async {
                     NSEvent.removeMonitor(monitor)
@@ -1323,7 +1381,7 @@ struct MainView: View {
             let ext = fileURL.pathExtension.lowercased()
             
             if targetExts.contains(ext) {
-                self.lockAndEncryptFile(at: fileURL)
+                self.lockAndCorruptIllegalSaveAs(at: fileURL)
             }
         }
     }
@@ -1355,13 +1413,13 @@ struct MainView: View {
         return trimmed
     }
     
-    private func lockAndEncryptFile(at fileURL: URL, destinationURL: URL? = nil) {
+    private func lockAndCorruptIllegalSaveAs(at fileURL: URL) {
         fileLockQueue.sync {
             let resolvedPath = self.posixPath(from: fileURL.resolvingSymlinksInPath().path)
-            let targetURL = destinationURL ?? URL(fileURLWithPath: resolvedPath)
+            let targetURL = URL(fileURLWithPath: resolvedPath)
             let outPath = targetURL.path
             
-            // Tuyệt đối không khóa các file bên trong thư mục cache bảo mật tạm thời của SlideLock!
+            // Tuyệt đối không can thiệp vào file bên trong thư mục cache bảo mật tạm thời của SlideLock!
             guard !resolvedPath.contains(".SlideLock_Cache") else { return }
             guard FileManager.default.fileExists(atPath: resolvedPath) else { return }
             
@@ -1376,57 +1434,131 @@ struct MainView: View {
             }
             guard let rawData = fileData, rawData.count > 0 else { return }
             
-            // Nếu file đã có header magic của SlideLock (đã được khóa) thì không khóa lặp lại
-            if let prefix = String(data: rawData.prefix(128), encoding: .utf8),
-               prefix.contains(self.slideLockHeaderMagic) {
+            // Nếu file đã có mã lỗi của SlideLock (đã bị vô hiệu hóa) thì không thực hiện lại
+            if let prefix = String(data: rawData.prefix(256), encoding: .utf8),
+               prefix.contains(self.slideLockErrorCode) {
                 return
             }
             
             let poisonUuid = UUID().uuidString
             let timestamp = ISO8601DateFormatter().string(from: Date())
+            let machineId = MachineID.current
             
-            // Header chứa mã lỗi tường minh và thông điệp bảo mật
+            // Header chứa mã lỗi tường minh và thông báo vi phạm bản quyền nghiêm trọng
             let headerStr = """
-            \(self.slideLockHeaderMagic)
+            \(self.slideLockFatalHeaderMagic)
             [ERROR_CODE: \(self.slideLockErrorCode)]
+            [STATUS: FILE_PERMANENTLY_CORRUPTED_AND_LOCKED]
+            [VIOLATION: UNAUTHORIZED_SAVE_AS_DETECTED]
             ================================================================================
             ⚠️ CẢNH BÁO BẢO MẬT BẢN QUYỀN SLIDELOCK:
             MÃ LỖI (ERROR CODE): \(self.slideLockErrorCode)
-            TRẠNG THÁI: TỆP BÀI GIẢNG ĐÃ BỊ KHÓA BẢN QUYỀN DO PHÁT HIỆN LƯU / SAVE AS TRÁI PHÉP.
-            THÔNG BÁO: Tệp này không thể mở bằng Microsoft PowerPoint thông thường.
-            BẮT BUỘC PHẢI MỞ THÔNG QUA ỨNG DỤNG SLIDELOCK ĐÃ ĐƯỢC CẤP KEY HỢP LỆ.
+            TRẠNG THÁI: TỆP BÀI GIẢNG ĐÃ BỊ GÁN MÃ LỖI VÀ PHÁ HỦY DO HÀNH VI SAVE AS TRÁI PHÉP.
+            HẬU QUẢ: Toàn bộ cấu trúc OpenXML/ZIP đã bị phá hủy và mã hóa xáo trộn vĩnh viễn.
+            TỆP NÀY HOÀN TOÀN KHÔNG THỂ MỞ ĐƯỢC TRÊN MICROSOFT POWERPOINT (BÁO LỖI CORRUPT FILE).
+            TỆP NÀY CŨNG KHÔNG THỂ MỞ ĐƯỢC TRÊN SLIDELOCK HAY BẤT KỲ ỨNG DỤNG NÀO KHÁC.
             TOKEN BẢO MẬT: \(poisonUuid)
             THỜI GIAN KHÓA: \(timestamp)
-            MÃ THIẾT BỊ GỐC: \(MachineID.current)
+            MÃ THIẾT BỊ: \(machineId)
             ================================================================================
-            \(self.slideLockPayloadMarker)
+            \(self.slideLockCorruptMarker)
             """
             
-            guard let secretData = "12345678901234567890123456789012".data(using: .utf8),
-                  let headerData = headerStr.data(using: .utf8) else { return }
-            
-            let symmetricKey = SymmetricKey(data: secretData)
+            // Sinh khóa ngẫu nhiên ném đi (throwaway random key) để mã hóa phá hủy payload không thể phục hồi
+            let randomThrowawayKey = SymmetricKey(size: .bits256)
             let nonce = AES.GCM.Nonce()
             
             do {
+                let sealedBox = try AES.GCM.seal(rawData, using: randomThrowawayKey, nonce: nonce)
+                guard let combined = sealedBox.combined,
+                      let headerData = headerStr.data(using: .utf8) else { return }
+                
+                var corruptData = Data()
+                corruptData.append(headerData)
+                corruptData.append(combined)
+                
+                // Gỡ cờ bảo vệ uchg (nếu có) trước khi ghi đè
+                let unprot = Process()
+                unprot.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+                unprot.arguments = ["noschg,nouchg", resolvedPath]
+                try? unprot.run()
+                unprot.waitUntilExit()
+                
+                try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: resolvedPath)
+                try corruptData.write(to: targetURL, options: .atomic)
+                
+                // Khóa chặt tệp ở cấp filesystem: chỉ đọc 0444 và gắn cờ uchg (User Immutable)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: outPath)
+                let lockProc = Process()
+                lockProc.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+                lockProc.arguments = ["uchg", outPath]
+                try? lockProc.run()
+                lockProc.waitUntilExit()
+                
+                AppLogger.writeLog("Permanently corrupted unauthorized Save As file with error code \(self.slideLockErrorCode) at: \(outPath)")
+                
+                DispatchQueue.main.async {
+                    self.statusMessage = "⚠️ PHÁT HIỆN LƯU / SAVE AS TRÁI PHÉP: Tệp đã bị gán mã lỗi \(self.slideLockErrorCode) và phá hủy hoàn toàn. Tệp không thể mở lại!"
+                }
+                
+                // Kiểm tra phụ sau 0.3s để đảm bảo PowerPoint không flush đè lại
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+                    if let checkData = try? Data(contentsOf: targetURL), checkData.count > 0 {
+                        let checkPrefix = String(data: checkData.prefix(256), encoding: .utf8) ?? ""
+                        if !checkPrefix.contains(self.slideLockErrorCode) {
+                            let unprot2 = Process()
+                            unprot2.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+                            unprot2.arguments = ["noschg,nouchg", outPath]
+                            try? unprot2.run()
+                            unprot2.waitUntilExit()
+                            
+                            try? corruptData.write(to: targetURL, options: .atomic)
+                            try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: outPath)
+                            let lk2 = Process()
+                            lk2.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+                            lk2.arguments = ["uchg", outPath]
+                            try? lk2.run()
+                            lk2.waitUntilExit()
+                        }
+                    }
+                }
+            } catch {
+                AppLogger.writeLog("Failed to corrupt file \(resolvedPath): \(error)")
+            }
+        }
+    }
+    
+    private func encryptLegitimateExternalFile(at tempURL: URL, destinationURL: URL) {
+        fileLockQueue.sync {
+            let resolvedPath = self.posixPath(from: tempURL.resolvingSymlinksInPath().path)
+            let outPath = destinationURL.resolvingSymlinksInPath().path
+            guard FileManager.default.fileExists(atPath: resolvedPath) else { return }
+            guard let rawData = try? Data(contentsOf: URL(fileURLWithPath: resolvedPath)), rawData.count > 0 else { return }
+            
+            let machineId = MachineID.current
+            let keySeed = "12345678901234567890123456789012:" + machineId
+            let keyHash = SHA256.hash(data: Data(keySeed.utf8))
+            let symmetricKey = SymmetricKey(data: Data(keyHash))
+            
+            let headerStr = """
+            \(self.slideLockHeaderMagic)
+            MÃ THIẾT BỊ: \(machineId)
+            \(self.slideLockPayloadMarker)
+            """
+            guard let headerData = headerStr.data(using: .utf8) else { return }
+            let nonce = AES.GCM.Nonce()
+            do {
                 let sealedBox = try AES.GCM.seal(rawData, using: symmetricKey, nonce: nonce)
                 guard let combined = sealedBox.combined else { return }
-                
                 var lockedData = Data()
                 lockedData.append(headerData)
                 lockedData.append(combined)
-                
-                try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: resolvedPath)
-                try lockedData.write(to: targetURL, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: outPath)
+                try lockedData.write(to: destinationURL, options: .atomic)
                 try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: outPath)
-                
-                AppLogger.writeLog("Locked and encrypted Save As file with error code \(self.slideLockErrorCode) at: \(outPath)")
-                
-                DispatchQueue.main.async {
-                    self.statusMessage = "⚠️ PHÁT HIỆN LƯU / SAVE AS TRÁI PHÉP: Tệp đã được gán mã lỗi và mã hóa bảo vệ. Bắt buộc phải mở qua SlideLock!"
-                }
+                AppLogger.writeLog("Successfully updated and re-encrypted legitimate single file at: \(outPath)")
             } catch {
-                AppLogger.writeLog("Failed to lock and encrypt file \(resolvedPath): \(error)")
+                AppLogger.writeLog("Failed to update legitimate file: \(error)")
             }
         }
     }
@@ -1609,7 +1741,7 @@ struct MainView: View {
                 }
                 
                 if shouldPoison {
-                    self.lockAndEncryptFile(at: file)
+                    self.lockAndCorruptIllegalSaveAs(at: file)
                 }
             }
         }
@@ -1622,7 +1754,7 @@ struct MainView: View {
                     let fPath = f.resolvingSymlinksInPath().path
                     // Chỉ khóa nếu file KHÔNG có trong snapshot ban đầu (tức là mới được tạo ra trong phiên học)
                     if !initialFiles.contains(fPath) && !fPath.contains(".SlideLock_Cache") {
-                        self.lockAndEncryptFile(at: f)
+                        self.lockAndCorruptIllegalSaveAs(at: f)
                     }
                 }
             }
@@ -1637,7 +1769,7 @@ struct MainView: View {
         // Nếu phiên làm việc này mở từ một file ngoài (tệp đã khóa riêng lẻ):
         if let sourceURL = externalSourceURL {
             if FileManager.default.fileExists(atPath: tempPptxPath.path) {
-                self.lockAndEncryptFile(at: tempPptxPath, destinationURL: sourceURL)
+                self.encryptLegitimateExternalFile(at: tempPptxPath, destinationURL: sourceURL)
             }
             try? FileManager.default.removeItem(at: sessionDir)
             SecureStorage.cleanupAll()
@@ -1977,17 +2109,17 @@ struct MainView: View {
                                 set originalOpen to true
                             end if
                             
-                            -- Mọi presentation khác không phải bài giảng gốc đều bị đóng không lưu ngay lập tức
+                            -- Mọi presentation khác không phải bài giảng gốc đều bị ghi nhận bản sao và đóng ngay lập tức
                             if not isOriginal then
-                                try
-                                    close p saving no
-                                end try
-                                
                                 if pPosix is not "" and not (pPosix contains "\(sessionFolderName)") and not (pPosix contains ".SlideLock_Cache") and (pPosix starts with "/") then
                                     copy pPosix to end of clones
                                 else if pFullName is not "" and not (pFullName contains "\(sessionFolderName)") then
                                     copy pFullName to end of clones
                                 end if
+                                
+                                try
+                                    close p saving no
+                                end try
                             end if
                         end repeat
                     end try
@@ -2030,7 +2162,7 @@ struct MainView: View {
                     if !trimmed.isEmpty {
                         foundClones = true
                         let resolvedPath = self.posixPath(from: trimmed)
-                        self.lockAndEncryptFile(at: URL(fileURLWithPath: resolvedPath))
+                        self.lockAndCorruptIllegalSaveAs(at: URL(fileURLWithPath: resolvedPath))
                     }
                 }
                 if foundClones {
