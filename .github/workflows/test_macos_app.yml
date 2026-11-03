@@ -56,9 +56,11 @@ jobs:
             <key>CFBundleExecutable</key>
             <string>SlideLock</string>
             <key>CFBundleIdentifier</key>
-            <string>com.example.SlideLock</string>
+            <string>com.slidelock.security.player</string>
             <key>CFBundleName</key>
             <string>SlideLock</string>
+            <key>CFBundleDisplayName</key>
+            <string>SlideLock Player</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>

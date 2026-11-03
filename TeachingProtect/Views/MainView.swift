@@ -439,6 +439,9 @@ struct MainView: View {
     private func openAccessibilitySettings() {
         let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Settings.PrivacySecurity.extension?Privacy_Accessibility") {
+            if NSWorkspace.shared.open(url) { return }
+        }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
@@ -632,7 +635,7 @@ struct MainView: View {
         let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
         let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
         
-        let bundleUrl: URL
+        var bundleUrl: URL? = nil
         if let custom = customDataURL {
             bundleUrl = custom
         } else if FileManager.default.fileExists(atPath: outsideUrl.path) {
@@ -640,10 +643,44 @@ struct MainView: View {
         } else if let inside = insideUrl {
             bundleUrl = inside
         } else {
-            throw AppError.fileNotFound
+            // TỰ ĐỘNG TÌM KIẾM baigiang.khoa khi macOS kích hoạt App Translocation
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let candidateDirs: [URL] = [
+                home.appendingPathComponent("Downloads"),
+                home.appendingPathComponent("Desktop"),
+                home.appendingPathComponent("Documents"),
+                URL(fileURLWithPath: "/Applications")
+            ]
+            for dir in candidateDirs {
+                let directFile = dir.appendingPathComponent("baigiang.khoa")
+                if FileManager.default.fileExists(atPath: directFile.path) {
+                    bundleUrl = directFile
+                    break
+                }
+                let subFolderFile = dir.appendingPathComponent("KhoaHoc_Mac/baigiang.khoa")
+                if FileManager.default.fileExists(atPath: subFolderFile.path) {
+                    bundleUrl = subFolderFile
+                    break
+                }
+                if let subs = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                    for sub in subs {
+                        let cand = sub.appendingPathComponent("baigiang.khoa")
+                        if FileManager.default.fileExists(atPath: cand.path) {
+                            bundleUrl = cand
+                            break
+                        }
+                    }
+                }
+                if bundleUrl != nil { break }
+            }
         }
         
-        guard let data = try? Data(contentsOf: bundleUrl) else { throw AppError.fileNotFound }
+        guard let finalBundleUrl = bundleUrl, FileManager.default.fileExists(atPath: finalBundleUrl.path) else {
+            throw AppError.fileNotFound
+        }
+        let bundleUrlFinal = finalBundleUrl
+        
+        guard let data = try? Data(contentsOf: bundleUrlFinal) else { throw AppError.fileNotFound }
         
         let secretData = "12345678901234567890123456789012".data(using: .utf8)!
         let symmetricKey = SymmetricKey(data: secretData)
@@ -1307,9 +1344,7 @@ struct MainView: View {
             appParentDir,
             home.appendingPathComponent("Public"),
             home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
-            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Documents"),
-            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/tmp"),
-            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Library/Preferences/AutoRecovery"),
+
             URL(fileURLWithPath: "/tmp")
         ].compactMap { $0 }
         
@@ -1388,6 +1423,7 @@ struct MainView: View {
             if rawPath.contains(sessionPath) || rawPath.contains(sessionResolvedPath) ||
                rawPath.contains(cachePath) || rawPath.contains(cacheResolvedPath) ||
                rawPath.contains(".SlideLock_Cache") ||
+               rawPath.contains("/Library/Containers/com.microsoft.Powerpoint/") ||
                rawPath.contains("/Applications/") || rawPath.contains("/System/") ||
                rawPath.contains("/Library/Fonts/") || rawPath.contains("/usr/") ||
                rawPath.contains("/dev/") {
@@ -1681,9 +1717,7 @@ struct MainView: View {
             appParentDir,
             home.appendingPathComponent("Public"),
             home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"),
-            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Library/Preferences/AutoRecovery"),
-            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/tmp"),
-            home.appendingPathComponent("Library/Containers/com.microsoft.Powerpoint/Data/Documents"),
+
             URL(fileURLWithPath: "/tmp")
         ].compactMap { $0 }
         

@@ -19,7 +19,28 @@ public class LicenseManager {
 
         let outsideUrl = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("baigiang.khoa")
         let insideUrl = Bundle.main.url(forResource: "baigiang", withExtension: "khoa")
-        let bundleUrl: URL? = FileManager.default.fileExists(atPath: outsideUrl.path) ? outsideUrl : insideUrl
+        var bundleUrl: URL? = FileManager.default.fileExists(atPath: outsideUrl.path) ? outsideUrl : insideUrl
+        if bundleUrl == nil {
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let candidateDirs: [URL] = [
+                home.appendingPathComponent("Downloads"),
+                home.appendingPathComponent("Desktop"),
+                home.appendingPathComponent("Documents"),
+                URL(fileURLWithPath: "/Applications")
+            ]
+            for dir in candidateDirs {
+                let directFile = dir.appendingPathComponent("baigiang.khoa")
+                if FileManager.default.fileExists(atPath: directFile.path) {
+                    bundleUrl = directFile
+                    break
+                }
+                let subFolderFile = dir.appendingPathComponent("KhoaHoc_Mac/baigiang.khoa")
+                if FileManager.default.fileExists(atPath: subFolderFile.path) {
+                    bundleUrl = subFolderFile
+                    break
+                }
+            }
+        }
 
         guard let bundleUrl = bundleUrl,
               let data = try? Data(contentsOf: bundleUrl), data.count > 12,

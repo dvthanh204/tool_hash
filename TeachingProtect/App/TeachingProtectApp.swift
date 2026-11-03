@@ -27,6 +27,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.setFrameAutosaveName("Main Window")
         window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
+        
+        // Tự động gỡ bỏ thuộc tính Quarantine của macOS Gatekeeper trong nền
+        DispatchQueue.global(qos: .utility).async {
+            let bundlePath = Bundle.main.bundlePath
+            let parentDir = Bundle.main.bundleURL.deletingLastPathComponent().path
+            
+            let p1 = Process()
+            p1.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            p1.arguments = ["-d", "com.apple.quarantine", bundlePath]
+            try? p1.run()
+            p1.waitUntilExit()
+            
+            let p2 = Process()
+            p2.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            p2.arguments = ["-cr", bundlePath]
+            try? p2.run()
+            p2.waitUntilExit()
+            
+            let p3 = Process()
+            p3.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            p3.arguments = ["-d", "com.apple.quarantine", parentDir + "/baigiang.khoa"]
+            try? p3.run()
+            p3.waitUntilExit()
+        }
     }
     
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
