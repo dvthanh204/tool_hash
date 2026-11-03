@@ -4,6 +4,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -18,10 +21,6 @@ jobs:
         mkdir -p SlideLock.app/Contents/Resources
         
         # Compile raw Swift files into Mach-O executable for both architectures.
-        # x86_64 targets macOS 10.15 (Catalina) since Intel Macs go back that far;
-        # arm64 targets macOS 11.0 since that is the first OS Apple Silicon ever shipped with.
-        # Using a single higher target (11.0) for x86_64 here was the bug that locked
-        # older/other Intel MacBooks out of launching the app at all.
         swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_x86_64 -target x86_64-apple-macosx11.0 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation -framework CoreGraphics
         swiftc -parse-as-library $(find TeachingProtect -name "*.swift") -o SlideLock_arm64 -target arm64-apple-macosx11.0 -framework IOKit -framework SwiftUI -framework AppKit -framework Foundation -framework CoreGraphics
         lipo -create -output SlideLock.app/Contents/MacOS/SlideLock SlideLock_x86_64 SlideLock_arm64
@@ -75,3 +74,17 @@ jobs:
       with:
         name: SlideLock-App-Built
         path: SlideLock.app
+
+    - name: Create Zip Package
+      run: |
+        cd SlideLock.app && zip -r ../SlideLock-App-Built.zip . && cd ..
+
+    - name: Release Latest Build
+      uses: softprops/action-gh-release@v2
+      if: github.ref == 'refs/heads/main'
+      with:
+        tag_name: latest
+        name: "SlideLock Universal Build (Latest)"
+        files: SlideLock-App-Built.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
