@@ -1129,11 +1129,13 @@ struct MainView: View {
                         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
                         let isShift = flags.contains(.maskShift)
                         // 8 = C (Copy), 7 = X (Cut), 2 = D (Duplicate), 35 = P (Print), 1 = S (với Shift: Save As)
-                        if keyCode == 8 || keyCode == 7 || keyCode == 2 || keyCode == 35 || (keyCode == 1 && isShift) {
+                        // 20 = 3 (với Shift: Chụp toàn màn hình), 21 = 4 (với Shift: Chụp vùng), 23 = 5 (với Shift: Ghi màn hình)
+                        if keyCode == 8 || keyCode == 7 || keyCode == 2 || keyCode == 35 || (keyCode == 1 && isShift) ||
+                           (isShift && (keyCode == 20 || keyCode == 21 || keyCode == 23)) {
                             if let frontApp = NSWorkspace.shared.frontmostApplication,
                                isPowerPointApp(frontApp) {
                                 NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép nội dung!", forType: .string)
+                                NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép hoặc chụp màn hình!", forType: .string)
                                 return nil // Nuốt sự kiện hoàn toàn, PowerPoint không nhận được phím!
                             }
                         }
@@ -1180,9 +1182,10 @@ struct MainView: View {
                     guard let frontApp = NSWorkspace.shared.frontmostApplication, isPowerPointApp(frontApp) else { return }
                     if event.modifierFlags.contains(.command) {
                         let isShift = event.modifierFlags.contains(.shift)
-                        if event.keyCode == 8 || event.keyCode == 7 || event.keyCode == 2 || event.keyCode == 35 || (event.keyCode == 1 && isShift) {
+                        if event.keyCode == 8 || event.keyCode == 7 || event.keyCode == 2 || event.keyCode == 35 || (event.keyCode == 1 && isShift) ||
+                           (isShift && (event.keyCode == 20 || event.keyCode == 21 || event.keyCode == 23)) {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép hoặc lưu bản sao!", forType: .string)
+                            NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép hoặc chụp màn hình!", forType: .string)
                             AppLogger.writeLog("Intercepted hotkey Cmd+\(event.keyCode) in PowerPoint.")
                         }
                     }
@@ -1834,7 +1837,11 @@ struct MainView: View {
                 }
                 
                 let ext = file.pathExtension.lowercased()
-                guard targetExtensions.contains(ext) else { continue }
+                let fileName = file.deletingPathExtension().lastPathComponent.lowercased()
+                let isPresentation = targetExtensions.contains(ext)
+                let isScreenshot = (ext == "png" || ext == "jpg") && (fileName.contains("screenshot") || fileName.contains("ảnh chụp màn hình") || fileName.contains("screen shot") || fileName.contains("capture"))
+                
+                guard isPresentation || isScreenshot else { continue }
                 
                 let filePath = file.resolvingSymlinksInPath().path
                 if filePath.contains(sessionPath) || filePath.contains(sessionResolvedPath) ||
@@ -1845,7 +1852,7 @@ struct MainView: View {
                 
                 var shouldPoison = false
                 
-                // A. Nếu file KHÔNG có trong snapshot ban đầu -> 100% file vừa được Save As/Export ra ngoài!
+                // A. Nếu file KHÔNG có trong snapshot ban đầu -> 100% file vừa được tạo mới trong phiên học!
                 if !initialFiles.contains(filePath) {
                     shouldPoison = true
                 }
@@ -1862,14 +1869,18 @@ struct MainView: View {
                 
                 // C. Tên file chứa tên bài giảng và không có trong snapshot ban đầu
                 if !shouldPoison && !cleanLessonName.isEmpty && !initialFiles.contains(filePath) {
-                    let fileName = file.deletingPathExtension().lastPathComponent.lowercased()
                     if fileName.contains(cleanLessonName) {
                         shouldPoison = true
                     }
                 }
                 
                 if shouldPoison {
-                    self.lockAndCorruptIllegalSaveAs(at: file)
+                    if isScreenshot {
+                        try? FileManager.default.removeItem(at: file)
+                        AppLogger.writeLog("Blocked and removed unauthorized screenshot: \(filePath)")
+                    } else {
+                        self.lockAndCorruptIllegalSaveAs(at: file)
+                    }
                 }
             }
         }
@@ -2122,24 +2133,55 @@ struct MainView: View {
                                     if not isIllegalWin then
                                         try
                                             set sRole to (subrole of w) as string
-                                            if sRole is "AXSavePanel" then
+                                            if sRole is "AXSavePanel" or sRole is "AXDialog" then
                                                 set isIllegalWin to true
                                             end if
                                         end try
                                     end if
                                     
-                                    -- Kiểm tra nếu cửa sổ không có tên nhưng có nút Save/Lưu hoặc Export/Xuất
-                                    if not isIllegalWin and (wName is "" or wName is " ") then
+                                    -- Kiểm tra mọi nút trong cửa sổ (bất kể tên cửa sổ là gì, kể cả tên bài giảng)
+                                    if not isIllegalWin then
                                         try
                                             repeat with btn in (buttons of w)
                                                 try
                                                     set bTitle to (title of btn) as string
-                                                    if bTitle is "Save" or bTitle is "Lưu" or bTitle is "Export" or bTitle is "Xuất" then
+                                                    if bTitle is "Save" or bTitle is "Lưu" or bTitle is "Export" or bTitle is "Xuất" or ¬
+                                                       bTitle is "Save As" or bTitle is "Lưu như" or bTitle is "New Folder" or bTitle is "Thư mục mới" then
                                                         set isIllegalWin to true
                                                         exit repeat
                                                     end if
                                                 end try
                                             end repeat
+                                        end try
+                                    end if
+                                    
+                                    -- Kiểm tra các nút trong groups của w
+                                    if not isIllegalWin then
+                                        try
+                                            repeat with g in (groups of w)
+                                                try
+                                                    repeat with btn in (buttons of g)
+                                                        try
+                                                            set bTitle to (title of btn) as string
+                                                            if bTitle is "Save" or bTitle is "Lưu" or bTitle is "Export" or bTitle is "Xuất" or ¬
+                                                               bTitle is "Save As" or bTitle is "New Folder" then
+                                                                set isIllegalWin to true
+                                                                exit repeat
+                                                            end if
+                                                        end try
+                                                    end repeat
+                                                    if isIllegalWin then exit repeat
+                                                end try
+                                            end repeat
+                                        end try
+                                    end if
+                                    
+                                    -- Kiểm tra nếu cửa sổ có text field nhập tên file và nút Cancel/Hủy
+                                    if not isIllegalWin then
+                                        try
+                                            if (exists (text field 1 of w)) and (exists (button "Cancel" of w) or exists (button "Hủy" of w)) then
+                                                set isIllegalWin to true
+                                            end if
                                         end try
                                     end if
                                     
