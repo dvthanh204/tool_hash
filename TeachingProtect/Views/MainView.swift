@@ -30,6 +30,22 @@ struct AppLogger {
     }
 }
 
+fileprivate func isPowerPointApp(_ app: NSRunningApplication?) -> Bool {
+    guard let app = app else { return false }
+    let bid = app.bundleIdentifier?.lowercased() ?? ""
+    let name = app.localizedName?.lowercased() ?? ""
+    return bid == "com.microsoft.powerpoint" || bid.contains("powerpoint") || name.contains("powerpoint")
+}
+
+fileprivate func getRunningPowerPointApps() -> [NSRunningApplication] {
+    return NSWorkspace.shared.runningApplications.filter { isPowerPointApp($0) }
+}
+
+fileprivate func isAnyPowerPointRunning() -> Bool {
+    return NSWorkspace.shared.runningApplications.contains { isPowerPointApp($0) }
+}
+
+
 struct MainView: View {
     struct LessonInfo: Hashable {
         let safeName: String
@@ -1115,7 +1131,7 @@ struct MainView: View {
                         // 8 = C (Copy), 7 = X (Cut), 2 = D (Duplicate), 35 = P (Print), 1 = S (với Shift: Save As)
                         if keyCode == 8 || keyCode == 7 || keyCode == 2 || keyCode == 35 || (keyCode == 1 && isShift) {
                             if let frontApp = NSWorkspace.shared.frontmostApplication,
-                               frontApp.bundleIdentifier == "com.microsoft.Powerpoint" {
+                               isPowerPointApp(frontApp) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString("⚠️ BẢO MẬT SLIDELOCK: Bài giảng được bảo vệ bản quyền. Nghiêm cấm sao chép nội dung!", forType: .string)
                                 return nil // Nuốt sự kiện hoàn toàn, PowerPoint không nhận được phím!
@@ -1161,7 +1177,7 @@ struct MainView: View {
             var keyMonitor: Any? = nil
             DispatchQueue.main.sync {
                 keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { event in
-                    guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.microsoft.Powerpoint" else { return }
+                    guard let frontApp = NSWorkspace.shared.frontmostApplication, isPowerPointApp(frontApp) else { return }
                     if event.modifierFlags.contains(.command) {
                         let isShift = event.modifierFlags.contains(.shift)
                         if event.keyCode == 8 || event.keyCode == 7 || event.keyCode == 2 || event.keyCode == 35 || (event.keyCode == 1 && isShift) {
@@ -1181,7 +1197,7 @@ struct MainView: View {
                 let pb = NSPasteboard.general
                 let currentCount = pb.changeCount
                 if currentCount != lastPasteboardCount {
-                    let isPptFront = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.microsoft.Powerpoint"
+                    let isPptFront = isPowerPointApp(NSWorkspace.shared.frontmostApplication)
                     var hasPptData = false
                     if let types = pb.types {
                         for t in types {
@@ -1215,16 +1231,39 @@ struct MainView: View {
             // =========================================================================
             var initialSlideCount = 0
             var emptyPresentationCount = 0
+            var consecutivePptMissingCount = 0
             var loopIndex = 0
             var stillOpen = true
+            var pptStarted = false
+            
+            // Chờ PowerPoint khởi động xong (tối đa 25 giây - 250 * 100ms)
+            for _ in 0..<250 {
+                if isAnyPowerPointRunning() {
+                    pptStarted = true
+                    AppLogger.writeLog("PowerPoint process confirmed active.")
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
             
             while stillOpen {
                 // Kiểm tra xem ứng dụng PowerPoint có còn đang chạy không
-                let pptApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.microsoft.Powerpoint")
-                if pptApps.isEmpty {
-                    AppLogger.writeLog("Microsoft PowerPoint application terminated by user.")
-                    stillOpen = false
-                    break
+                if pptStarted {
+                    if !isAnyPowerPointRunning() {
+                        consecutivePptMissingCount += 1
+                        // Yêu cầu vắng mặt liên tiếp 20 lần (2.0 giây) mới xác nhận PowerPoint đã thoát
+                        if consecutivePptMissingCount >= 20 {
+                            AppLogger.writeLog("Microsoft PowerPoint application terminated by user.")
+                            stillOpen = false
+                            break
+                        }
+                    } else {
+                        consecutivePptMissingCount = 0
+                    }
+                } else {
+                    if isAnyPowerPointRunning() {
+                        pptStarted = true
+                    }
                 }
                 
                 // 1. Tự động đóng mọi popup/dialog nguy hiểm (Save with Fonts, Save As, Export, Print)
@@ -1237,11 +1276,13 @@ struct MainView: View {
                 if loopIndex % 2 == 0 {
                     let isOriginalOpen = self.scanAndKillClones(tempPptxPath: tempPptxPath, sessionDir: sessionDir, lessonDisplayName: lessonDisplayName, originalName: originalName)
                     if !isOriginalOpen {
-                        emptyPresentationCount += 1
-                        // Chỉ coi là đã kết thúc bài giảng nếu PowerPoint không có bài giảng nào trong 15 lần quét liên tiếp (1.5s)
-                        if emptyPresentationCount >= 15 {
-                            stillOpen = false
-                            break
+                        if pptStarted {
+                            emptyPresentationCount += 1
+                            // Chỉ coi là đã kết thúc bài giảng nếu PowerPoint không có bài giảng nào trong 25 lần quét liên tiếp (2.5s)
+                            if emptyPresentationCount >= 25 {
+                                stillOpen = false
+                                break
+                            }
                         }
                     } else {
                         emptyPresentationCount = 0
@@ -1387,7 +1428,7 @@ struct MainView: View {
     }
     
     private func scanAndPoisonPowerPointOpenFiles(sessionDir: URL) {
-        let pptApps = NSRunningApplication.runningApplications(withBundleIdentifier: "com.microsoft.Powerpoint")
+        let pptApps = getRunningPowerPointApps()
         guard let pptApp = pptApps.first else { return }
         let pid = pptApp.processIdentifier
         
@@ -1475,6 +1516,31 @@ struct MainView: View {
             guard !resolvedPath.contains(".SlideLock_Cache") else { return }
             guard FileManager.default.fileExists(atPath: resolvedPath) else { return }
             
+            // Đóng presentation này trong PowerPoint ngay lập tức không cho lưu thêm
+            let closeScript = """
+            try
+                tell application "Microsoft PowerPoint"
+                    repeat with p in presentations
+                        try
+                            set pPosix to ""
+                            set pFullName to (full name of p) as string
+                            if pFullName starts with "/" then
+                                set pPosix to pFullName
+                            else
+                                try
+                                    set pPosix to POSIX path of (pFullName as alias)
+                                end try
+                            end if
+                            if pPosix is "\(resolvedPath)" or pFullName contains "\(targetURL.lastPathComponent)" then
+                                close p saving no
+                            end if
+                        end try
+                    end repeat
+                end tell
+            end try
+            """
+            let _ = NSAppleScript(source: closeScript)?.executeAndReturnError(nil)
+            
             var rawData = (try? Data(contentsOf: URL(fileURLWithPath: resolvedPath))) ?? Data()
             if rawData.isEmpty {
                 for _ in 0..<6 {
@@ -1540,7 +1606,16 @@ struct MainView: View {
                 unprot.waitUntilExit()
                 
                 try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: resolvedPath)
-                try corruptData.write(to: targetURL, options: .atomic)
+                
+                // Ghi đè trực tiếp (in-place) bằng FileHandle và truncate để phá hủy triệt để
+                if let fileHandle = try? FileHandle(forWritingTo: targetURL) {
+                    fileHandle.truncateFile(atOffset: 0)
+                    fileHandle.write(corruptData)
+                    try? fileHandle.synchronize()
+                    fileHandle.closeFile()
+                } else {
+                    try? corruptData.write(to: targetURL)
+                }
                 
                 // Khóa chặt tệp ở cấp filesystem: chỉ đọc 0444 và gắn cờ uchg (User Immutable)
                 try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: outPath)
@@ -1567,7 +1642,15 @@ struct MainView: View {
                             try? unprot2.run()
                             unprot2.waitUntilExit()
                             
-                            try? corruptData.write(to: targetURL, options: .atomic)
+                            try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: outPath)
+                            if let fh = try? FileHandle(forWritingTo: targetURL) {
+                                fh.truncateFile(atOffset: 0)
+                                fh.write(corruptData)
+                                try? fh.synchronize()
+                                fh.closeFile()
+                            } else {
+                                try? corruptData.write(to: targetURL)
+                            }
                             try? FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: outPath)
                             let lk2 = Process()
                             lk2.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
@@ -1622,7 +1705,7 @@ struct MainView: View {
         let pb = NSPasteboard.general
         let currentCount = pb.changeCount
         
-        let isPptFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.microsoft.Powerpoint"
+        let isPptFrontmost = isPowerPointApp(NSWorkspace.shared.frontmostApplication)
         
         var hasPptData = false
         if let types = pb.types {
